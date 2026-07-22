@@ -1,32 +1,26 @@
-# React + TypeScript + Vite
+# SentinelX AI — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite + Tailwind CSS v4 + Framer Motion dashboard and landing site for **SentinelX AI**.
 
-Currently, two official plugins are available:
+> For the full project overview, architecture, environment variables, and setup instructions, see the [root README](../README.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Quick start
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev        # http://localhost:5173 (auto-shifts port if taken)
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Start the Vite dev server with HMR |
+| `npm run build` | Type-check (`tsc -b`) and build for production |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | Lint with [oxlint](https://oxc.rs) |
+| `npm run typecheck` | Type-check without emitting output |
+
+## Structure
+
+See the [directory tree in the root README](../README.md#monorepo-layout) for a full breakdown of `src/app`, `src/components`, `src/context`, `src/features`, `src/hooks`, `src/pages`, `src/services`, and `src/theme`.
