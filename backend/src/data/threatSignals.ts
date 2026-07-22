@@ -1,0 +1,100 @@
+import type { ThreatSignalDefinition } from "@shared/types";
+
+export const threatSignalDefinitions: ThreatSignalDefinition[] = [
+  {
+    category: "authority_impersonation",
+    label: "Authority impersonation",
+    weight: 20,
+    keywords: [
+      "cbi",
+      "central bureau",
+      "police department",
+      "customs department",
+      "reserve bank",
+      "rbi officer",
+      "income tax department",
+      "enforcement directorate",
+      "fedex compliance",
+      "narcotics control bureau",
+      "digital arrest",
+      "arrest warrant",
+    ],
+  },
+  {
+    category: "isolation_request",
+    label: "Isolation request",
+    weight: 15,
+    keywords: [
+      "don't disconnect",
+      "do not disconnect",
+      "don't hang up",
+      "stay on the line",
+      "don't tell anyone",
+      "don't tell your family",
+      "keep this confidential",
+      "this is a confidential investigation",
+    ],
+  },
+  {
+    category: "urgency_pressure",
+    label: "Urgency & pressure language",
+    weight: 10,
+    keywords: [
+      "immediately",
+      "right now",
+      "within the next hour",
+      "before it's too late",
+      "last warning",
+      "non-bailable",
+      "you will be arrested",
+      "strict action will be taken",
+    ],
+  },
+  {
+    category: "money_transfer",
+    label: "Money transfer request",
+    weight: 25,
+    keywords: [
+      "transfer the amount",
+      "transfer funds",
+      "send the money",
+      "pay a refundable deposit",
+      "processing fee",
+      "verification fee",
+      "rtgs transfer",
+      "neft transfer",
+    ],
+  },
+  {
+    category: "safe_account",
+    label: "Fraudulent \"safe account\" request",
+    weight: 20,
+    keywords: [
+      "safe account",
+      "government verification account",
+      "rbi monitored account",
+      "escrow account for verification",
+      "temporary holding account",
+    ],
+  },
+  {
+    category: "skype_verification",
+    label: "Skype / video verification request",
+    weight: 15,
+    keywords: [
+      "turn on skype",
+      "video call verification",
+      "switch on your camera",
+      "install skype",
+      "video kyc on this call",
+    ],
+  },
+];
+
+export const escalationBonus = {
+  category: "escalation_bonus" as const,
+  label: "Compounding threat escalation",
+  windowMs: 20_000,
+  bonus: 8,
+  maxAppliedTimes: 3,
+};

@@ -1,0 +1,21 @@
+{
+  "name": "sentinelx-ai",
+  "version": "0.1.0",
+  "description": "SentinelX AI — National Fraud Intelligence Platform (NFIP). From Detection to Decision Intelligence.",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n BACKEND,FRONTEND -c blue,cyan \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "typecheck": "npm run typecheck --prefix backend && npm run typecheck --prefix frontend",
+    "typecheck:frontend": "npm run typecheck --prefix frontend",
+    "typecheck:backend": "npm run typecheck --prefix backend",
+    "install:all": "npm install --prefix frontend && npm install --prefix backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

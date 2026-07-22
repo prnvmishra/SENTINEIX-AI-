@@ -1,0 +1,33 @@
+import type { ScenarioDefinition } from "../scenarioTypes.js";
+
+export const rbiAccountFreezeScenario: ScenarioDefinition = {
+  id: "case-rbi-pune",
+  title: "Fake RBI Compliance — Account Freeze Threat",
+  impersonatedAuthority: "RBI",
+  victimAlias: "S. Deshmukh (Homemaker, 52)",
+  city: "Pune",
+  state: "Maharashtra",
+  lat: 18.5204,
+  lng: 73.8567,
+  scammerPhone: "+91 96XXX-773421",
+  muleAccount: "Axis Bank •••• 1189 (Kolkata)",
+  campaignId: "campaign-rbi-compliance",
+  campaignLabel: "RBI Compliance Fraud Cell",
+  startedAt: "2026-07-20T09:05:00.000Z",
+  lines: [
+    { speaker: "system", text: "Incoming call connected. Recording started for quality analysis.", offsetMs: 0 },
+    { speaker: "scammer", text: "Namaste, this is RBI Officer Sunita Rao from the Reserve Bank compliance division.", offsetMs: 2800 },
+    { speaker: "victim", text: "Yes, is there a problem with my bank account?", offsetMs: 7500 },
+    { speaker: "scammer", text: "Your savings account is linked to a money laundering case under Enforcement Directorate review.", offsetMs: 12500 },
+    { speaker: "victim", text: "That can't be right, I only use this account for household expenses.", offsetMs: 18500 },
+    { speaker: "scammer", text: "This is a confidential investigation, do not tell your family or you may face obstruction charges.", offsetMs: 24000 },
+    { speaker: "scammer", text: "We need to verify your funds immediately, or your account will be frozen within the next hour.", offsetMs: 31000 },
+    { speaker: "victim", text: "Please don't freeze my account, what do you need from me?", offsetMs: 38000 },
+    { speaker: "scammer", text: "Do not disconnect this call. Transfer your savings to the RBI monitored account for a clean verification.", offsetMs: 44000 },
+    { speaker: "victim", text: "How much should I transfer?", offsetMs: 51500 },
+    { speaker: "scammer", text: "Transfer the amount in full via RTGS transfer today, it will be refunded after the verification fee is cleared.", offsetMs: 57000 },
+    { speaker: "scammer", text: "Also switch on your camera for a video call verification as required by RBI protocol.", offsetMs: 65000 },
+    { speaker: "victim", text: "Okay, I'm turning on the camera and sending the transfer now.", offsetMs: 73000 },
+    { speaker: "system", text: "Outgoing transfer of ₹4,10,000 flagged by bank risk engine — call intercepted by SentinelX AI.", offsetMs: 80000 },
+  ],
+};

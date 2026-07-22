@@ -1,0 +1,33 @@
+import type { ScenarioDefinition } from "../scenarioTypes.js";
+
+export const customsParcelScamScenario: ScenarioDefinition = {
+  id: "case-customs-bengaluru",
+  title: "Fake Customs Department — Illegal Export Threat",
+  impersonatedAuthority: "Customs",
+  victimAlias: "R. Gowda (IT Professional, 29)",
+  city: "Bengaluru",
+  state: "Karnataka",
+  lat: 12.9716,
+  lng: 77.5946,
+  scammerPhone: "+91 97XXX-882310",
+  muleAccount: "ICICI •••• 5581 (Guwahati)",
+  campaignId: "campaign-parcel-narcotics",
+  campaignLabel: "Parcel Narcotics Impersonation Ring",
+  startedAt: "2026-07-19T14:35:00.000Z",
+  lines: [
+    { speaker: "system", text: "Incoming call connected. Recording started for quality analysis.", offsetMs: 0 },
+    { speaker: "scammer", text: "This is Inspector Vinay Kumar from the Customs Department Cyber Wing.", offsetMs: 2500 },
+    { speaker: "victim", text: "Customs? I haven't ordered anything internationally.", offsetMs: 7000 },
+    { speaker: "scammer", text: "Your courier ID was flagged for an illegal export shipment. Strict action will be taken under customs law.", offsetMs: 11500 },
+    { speaker: "scammer", text: "Please do not disconnect the call, stay on the line while I connect you to the senior officer.", offsetMs: 18000 },
+    { speaker: "victim", text: "This sounds serious. I'll stay on the line.", offsetMs: 24000 },
+    { speaker: "scammer", text: "For identity verification, install Skype and switch on your camera immediately.", offsetMs: 29500 },
+    { speaker: "victim", text: "I have Skype open now.", offsetMs: 36000 },
+    { speaker: "scammer", text: "Good. This is a confidential investigation — do not tell anyone, including your employer, about this call.", offsetMs: 41000 },
+    { speaker: "scammer", text: "To close the case without a non-bailable arrest warrant, pay a refundable verification fee right now.", offsetMs: 49000 },
+    { speaker: "victim", text: "How do I pay the fee?", offsetMs: 55500 },
+    { speaker: "scammer", text: "Send the money via NEFT transfer to the escrow account for verification we will share on chat.", offsetMs: 61000 },
+    { speaker: "victim", text: "Sending it now, please don't let this affect my job.", offsetMs: 69000 },
+    { speaker: "system", text: "Outgoing transfer of ₹85,000 flagged by bank risk engine — call intercepted by SentinelX AI.", offsetMs: 76000 },
+  ],
+};
