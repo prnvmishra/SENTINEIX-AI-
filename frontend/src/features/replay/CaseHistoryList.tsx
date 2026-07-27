@@ -21,6 +21,13 @@ const statusTone: Record<CaseStatus, "success" | "warning" | "danger" | "neutral
   archived: "neutral",
 };
 
+const statusLabel: Record<CaseStatus, string> = {
+  live: "ONGOING",
+  resolved: "COMPLETED",
+  escalated: "ESCALATED",
+  archived: "ARCHIVED",
+};
+
 export function CaseHistoryList({
   cases,
   isLoading,
@@ -64,7 +71,7 @@ export function CaseHistoryList({
             <div className="flex items-center gap-2">
               <p className="truncate text-xs font-semibold text-text-primary">{caseSummary.title}</p>
               <Badge tone={statusTone[caseSummary.status]} className="shrink-0 text-[10px]">
-                {caseSummary.status}
+                {statusLabel[caseSummary.status]}
               </Badge>
             </div>
             <p className="mt-1 text-[11px] text-text-secondary">

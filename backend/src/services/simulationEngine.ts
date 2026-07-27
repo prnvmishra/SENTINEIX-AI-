@@ -73,7 +73,12 @@ function requestAiInsight(
   engineLevel: ThreatLevel,
   logLabel: string,
 ): void {
-  analyzeTranscriptWithAI(scenario.id, scenario, linesSoFar, engineScore, engineLevel)
+  const context = {
+    city: scenario.city,
+    state: scenario.state,
+    impersonatedAuthority: scenario.impersonatedAuthority,
+  };
+  analyzeTranscriptWithAI(scenario.id, context, linesSoFar, engineScore, engineLevel)
     .then((insight) => {
       if (!insight) return;
       broadcast("ai:insight", insight);

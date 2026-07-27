@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
+import { getStorage } from "firebase/storage";
 import { env, isFirebaseConfigured } from "@/services/env";
 
 const firebaseApp = isFirebaseConfigured
@@ -19,3 +20,4 @@ const firebaseApp = isFirebaseConfigured
 
 export const auth = firebaseApp ? getAuth(firebaseApp) : null;
 export const database = firebaseApp ? getDatabase(firebaseApp) : null;
+export const storage = firebaseApp ? getStorage(firebaseApp) : null;

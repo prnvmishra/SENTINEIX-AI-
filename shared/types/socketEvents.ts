@@ -6,6 +6,8 @@ import type { TimelineEvent, SystemLogEntry } from "./timeline";
 import type { AppNotification } from "./notification";
 import type { CaseSummary } from "./case";
 import type { AiInsight } from "./ai";
+import type { DeepfakeCheckResult, EntityIntelResult } from "./intel";
+import type { SpeakerType } from "./enums";
 
 export interface CaseStartPayload {
   case: CaseSummary;
@@ -15,6 +17,24 @@ export interface CaseEndPayload {
   caseId: string;
   finalScore: number;
   resolvedAt: string;
+}
+
+export interface LiveLinePayload {
+  text: string;
+  speaker: SpeakerType;
+}
+
+export interface LiveLocationPayload {
+  lat: number;
+  lng: number;
+  city?: string;
+  state?: string;
+}
+
+export interface LiveMediaCheckPayload {
+  mediaBase64: string;
+  mediaType: "audio" | "image";
+  fileName: string;
 }
 
 export interface ServerToClientEvents {
@@ -29,6 +49,8 @@ export interface ServerToClientEvents {
   "notification:new": (payload: AppNotification) => void;
   "ai:insight": (payload: AiInsight) => void;
   "case:end": (payload: CaseEndPayload) => void;
+  "intel:entityResult": (payload: EntityIntelResult) => void;
+  "intel:deepfakeResult": (payload: DeepfakeCheckResult) => void;
 }
 
 export interface ClientToServerEvents {
@@ -36,6 +58,11 @@ export interface ClientToServerEvents {
   "simulation:stop": () => void;
   "simulation:pause": () => void;
   "simulation:resume": () => void;
+  "live:start": () => void;
+  "live:line": (payload: LiveLinePayload) => void;
+  "live:location": (payload: LiveLocationPayload) => void;
+  "live:mediaCheck": (payload: LiveMediaCheckPayload) => void;
+  "live:end": () => void;
 }
 
 export type ServerToClientEventName = keyof ServerToClientEvents;

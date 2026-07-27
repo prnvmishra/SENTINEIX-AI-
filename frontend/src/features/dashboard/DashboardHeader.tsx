@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { BarChart3, Bell, ChevronDown, FileDown, LogOut, Play, Settings, ShieldHalf, Square } from "lucide-react";
+import { BadgeCheck, BarChart3, Bell, ChevronDown, FileDown, LogOut, Play, Settings, ShieldHalf, Square } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
@@ -15,6 +15,7 @@ import { useGenerateReport } from "@/features/report/useGenerateReport";
 import { ROUTES } from "@/app/routes";
 import { cn } from "@/utils/cn";
 import { roleLabels } from "@/constants/roles";
+import { isLiveMicSession } from "@/context/liveCaseContextInstance";
 import type { ConnectionStatus } from "@/context/socketContextInstance";
 
 const connectionCopy: Record<ConnectionStatus, { label: string; tone: "success" | "warning" | "danger" | "neutral"; pulse: boolean }> = {
@@ -35,6 +36,7 @@ export function DashboardHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const connection = connectionCopy[socketStatus];
+  const liveSessionActive = isRunning && isLiveMicSession(activeCase);
 
   function handleLogout() {
     logout();
@@ -58,18 +60,23 @@ export function DashboardHeader() {
       <div className="flex items-center gap-2">
         <Button
           size="sm"
-          variant={isRunning ? "danger" : "primary"}
-          disabled={socketStatus !== "connected"}
+          variant={isRunning ? "danger" : "outline"}
+          disabled={socketStatus !== "connected" || liveSessionActive}
           onClick={() => (isRunning ? stopSimulation() : startSimulation())}
           className="mr-1"
+          title={
+            liveSessionActive
+              ? "Stop the live mic session first"
+              : "Plays back one of 4 pre-scripted scenarios — a scripted demo, not real data. For a real analysis, use the Live Mic Session tab instead."
+          }
         >
           {isRunning ? (
             <>
-              <Square className="h-3.5 w-3.5" /> Stop Simulation
+              <Square className="h-3.5 w-3.5" /> Stop Demo
             </>
           ) : (
             <>
-              <Play className="h-3.5 w-3.5" /> Run Simulation
+              <Play className="h-3.5 w-3.5" /> Play Demo Scenario
             </>
           )}
         </Button>
@@ -90,6 +97,13 @@ export function DashboardHeader() {
           className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-text-secondary transition hover:bg-surface-raised hover:text-primary sm:flex"
         >
           <BarChart3 className="h-3.5 w-3.5" /> Analytics
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(ROUTES.officerRegistry)}
+          className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-text-secondary transition hover:bg-surface-raised hover:text-primary sm:flex"
+        >
+          <BadgeCheck className="h-3.5 w-3.5" /> Verify / Check
         </button>
         <button
           type="button"

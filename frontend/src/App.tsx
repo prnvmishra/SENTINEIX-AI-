@@ -14,6 +14,9 @@ const SignupPage = lazy(() => import("@/pages/SignupPage").then((m) => ({ defaul
 const DashboardPage = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const OfficerRegistryPage = lazy(() =>
+  import("@/pages/OfficerRegistryPage").then((m) => ({ default: m.OfficerRegistryPage })),
+);
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 
 function App() {
@@ -54,6 +57,16 @@ function App() {
                 <ProtectedRoute>
                   <RouteTransition>
                     <SettingsPage />
+                  </RouteTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path={ROUTES.officerRegistry}
+              element={
+                <ProtectedRoute>
+                  <RouteTransition>
+                    <OfficerRegistryPage />
                   </RouteTransition>
                 </ProtectedRoute>
               }

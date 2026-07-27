@@ -17,9 +17,11 @@ export type ThreatSignalCategory =
   | "money_transfer"
   | "safe_account"
   | "skype_verification"
-  | "escalation_bonus";
+  | "victim_distress"
+  | "escalation_bonus"
+  | "ai_assessment";
 
-export type GraphNodeType = "victim" | "scammer" | "mule_account" | "campaign";
+export type GraphNodeType = "victim" | "scammer" | "mule_account" | "campaign" | "infrastructure";
 
 export type CaseStatus = "live" | "resolved" | "escalated" | "archived";
 

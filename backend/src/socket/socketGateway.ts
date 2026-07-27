@@ -10,6 +10,13 @@ import {
   startSimulation,
   stopSimulation,
 } from "../services/simulationEngine.js";
+import {
+  endLiveSession,
+  startLiveSession,
+  submitLiveLine,
+  submitLiveLocation,
+  submitLiveMediaCheck,
+} from "../services/liveSessionEngine.js";
 
 export type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 export type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -30,6 +37,14 @@ export function registerSocketGateway(io: TypedServer): void {
     socket.on("simulation:stop", () => stopSimulation());
     socket.on("simulation:pause", () => pauseSimulation());
     socket.on("simulation:resume", () => resumeSimulation());
+
+    socket.on("live:start", () => startLiveSession(user.name));
+    socket.on("live:line", ({ text, speaker }) => submitLiveLine(text, speaker));
+    socket.on("live:location", ({ lat, lng }) => void submitLiveLocation(lat, lng));
+    socket.on("live:mediaCheck", ({ mediaBase64, mediaType, fileName }) =>
+      submitLiveMediaCheck(mediaBase64, mediaType, fileName),
+    );
+    socket.on("live:end", () => endLiveSession());
 
     socket.on("disconnect", (reason) => {
       console.log(`[socket] ${user.name} disconnected (${reason}) — ${socket.id}`);

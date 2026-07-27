@@ -5,6 +5,7 @@ export const ROUTES = {
   dashboard: "/dashboard",
   analytics: "/dashboard/analytics",
   settings: "/dashboard/settings",
+  officerRegistry: "/dashboard/officer-registry",
   docs: "/docs",
 } as const;
 

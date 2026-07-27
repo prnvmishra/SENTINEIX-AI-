@@ -38,5 +38,22 @@ export const env = {
   firebaseProjectId: optional("FIREBASE_PROJECT_ID"),
   firebaseDatabaseUrl: optional("FIREBASE_DATABASE_URL"),
   openRouterApiKey: optional("OPENROUTER_API_KEY"),
-  openRouterModel: optional("OPENROUTER_MODEL") ?? "openai/gpt-4o-mini",
+  // Defaults to a genuinely free (:free) OpenRouter model so the AI analyst
+  // costs $0 to run out of the box. Verified live against
+  // https://openrouter.ai/api/v1/models — override with a paid model if desired.
+  openRouterModel: optional("OPENROUTER_MODEL") ?? "google/gemma-4-31b-it:free",
+  openRouterVisionModel: optional("OPENROUTER_VISION_MODEL") ?? "nvidia/nemotron-nano-12b-v2-vl:free",
+  // FraudIntel India — real crowd-sourced Indian fraud intelligence DB
+  // (phone/UPI/text lookups). Free "Developer" tier: 100 API calls/day,
+  // forever free, no card required. https://www.fraudintel.in
+  fraudIntelApiKey: optional("FRAUDINTEL_API_KEY"),
+  // Reality Defender — real deepfake/voice-clone detection API. Free tier:
+  // 50 scans/month, audio + image. https://realitydefender.com/api
+  realityDefenderApiKey: optional("REALITYDEFENDER_API_KEY"),
+  // Groq — free, keyless-signup Whisper speech-to-text for transcribing a
+  // previously RECORDED call (as opposed to the Live Mic Session, which
+  // transcribes a live browser mic feed via the Web Speech API). Free tier:
+  // no card, 20 req/min, 2,000 req/day, 8 hours of audio/day, 25MB/file.
+  // https://console.groq.com/keys
+  groqApiKey: optional("GROQ_API_KEY"),
 } as const;

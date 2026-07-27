@@ -8,9 +8,11 @@ import { ThreatGauge } from "@/features/threat/ThreatGauge";
 import { ThreatReasonFeed } from "@/features/threat/ThreatReasonFeed";
 import { DecisionCard } from "@/features/threat/DecisionCard";
 import { AiAnalystCard } from "@/features/threat/AiAnalystCard";
+import { ReportToAuthorities } from "@/features/report/ReportToAuthorities";
 
 export function ThreatPanel() {
-  const { threatScore, threatLevel, threatReasons, decision, aiInsights, isRunning } = useLiveCase();
+  const { threatScore, threatLevel, threatReasons, decision, aiInsights, isRunning, activeCase, transcript, entityIntel } =
+    useLiveCase();
   const { aiAnalystEnabled } = useSystemHealth();
   const latestInsight = aiInsights.length > 0 ? aiInsights[aiInsights.length - 1] : null;
 
@@ -28,6 +30,15 @@ export function ThreatPanel() {
       </div>
 
       {decision && <DecisionCard decision={decision} />}
+
+      {(threatLevel === "high" || threatLevel === "critical") && (
+        <ReportToAuthorities
+          activeCase={activeCase}
+          transcript={transcript}
+          entityIntel={entityIntel}
+          threatLevel={threatLevel}
+        />
+      )}
 
       <AiAnalystCard insight={latestInsight} isEnabled={aiAnalystEnabled} isRunning={isRunning} />
 

@@ -1,5 +1,16 @@
 import type { ThreatSignalDefinition } from "@shared/types";
 
+/**
+ * Real digital-arrest scam calls in India happen mostly in Hindi/Hinglish,
+ * not the polished English dialogue of the scripted demo scenarios. Every
+ * category below therefore carries English keywords AND their real
+ * Hindi/Hinglish equivalents — both Devanagari (when the browser recognizes
+ * in hi-IN) and Romanized/Hinglish (when it recognizes in en-IN, which is
+ * how most Indian-accented speech actually comes back from the Web Speech
+ * API). Without this, a live session transcribing a real Hindi call would
+ * score 0 regardless of how alarming the content was — matching keywords in
+ * a language the caller never spoke is a real bug, not a demo limitation.
+ */
 export const threatSignalDefinitions: ThreatSignalDefinition[] = [
   {
     category: "authority_impersonation",
@@ -18,6 +29,43 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "narcotics control bureau",
       "digital arrest",
       "arrest warrant",
+      "warrant against you",
+      "case against you",
+      "fir against you",
+      "legal notice",
+      "court notice",
+      "summon",
+      "under investigation",
+      "money laundering",
+      "national security",
+      "is arrested",
+      "arrested now",
+      "cyber officer",
+      "cyber police",
+      // Hinglish / Romanized Hindi
+      "cbi officer",
+      "cyber cell",
+      "cyber crime",
+      "custom department",
+      "income tax officer",
+      "ed officer",
+      "narcotics",
+      "girftar",
+      "giraftar",
+      "warrant nikal",
+      "case dala hai",
+      "case darj",
+      "fir darj",
+      // Devanagari
+      "गिरफ्तार",
+      "वारंट",
+      "डिजिटल अरेस्ट",
+      "सीबीआई",
+      "पुलिस विभाग",
+      "इनकम टैक्स",
+      "कस्टम विभाग",
+      "साइबर क्राइम",
+      "एफआईआर",
     ],
   },
   {
@@ -33,6 +81,20 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "don't tell your family",
       "keep this confidential",
       "this is a confidential investigation",
+      // Hinglish
+      "phone mat kaato",
+      "call mat kaato",
+      "disconnect mat karo",
+      "line pe raho",
+      "kisi ko mat batana",
+      "kisi ko batana mat",
+      "family ko mat batao",
+      "gupt rakho",
+      "confidential hai",
+      // Devanagari
+      "फोन मत काटो",
+      "किसी को मत बताना",
+      "गुप्त जांच",
     ],
   },
   {
@@ -48,6 +110,20 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "non-bailable",
       "you will be arrested",
       "strict action will be taken",
+      // Hinglish
+      "abhi turant",
+      "turant karo",
+      "jaldi karo",
+      "abhi ke abhi",
+      "warna girftar",
+      "warna arrest",
+      "aakhri warning",
+      "strict action",
+      "non bailable",
+      // Devanagari
+      "अभी तुरंत",
+      "आखिरी चेतावनी",
+      "सख्त कार्रवाई",
     ],
   },
   {
@@ -63,6 +139,41 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "verification fee",
       "rtgs transfer",
       "neft transfer",
+      "pay the fine",
+      "pay a fine",
+      "10 lacs",
+      "lacs rupees",
+      "lakhs rupees",
+      "on my upi",
+      "my upi id",
+      "google pay",
+      "phonepe",
+      "gpay",
+      "wire transfer",
+      "deposit the amount",
+      "refundable amount",
+      // Hinglish
+      "paisa transfer karo",
+      "paise transfer karo",
+      "rupaye bhejo",
+      "rupees bhejo",
+      "paise bhej do",
+      "amount transfer karo",
+      "lakh rupaye",
+      "lakh rupees",
+      "processing fee",
+      "verification fee",
+      "upi kar do",
+      "upi bhejo",
+      "otp bhejo",
+      "otp bata do",
+      "bank details do",
+      "account number do",
+      // Devanagari
+      "पैसे भेज दो",
+      "रुपये ट्रांसफर करो",
+      "लाख रुपये",
+      "ओटीपी भेजो",
     ],
   },
   {
@@ -75,6 +186,12 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "rbi monitored account",
       "escrow account for verification",
       "temporary holding account",
+      // Hinglish
+      "safe account mein",
+      "government account mein",
+      "verification account",
+      "rbi account mein",
+      "temporary account",
     ],
   },
   {
@@ -87,6 +204,41 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "switch on your camera",
       "install skype",
       "video kyc on this call",
+      // Hinglish
+      "skype khol lo",
+      "skype install karo",
+      "camera on karo",
+      "video call pe aao",
+      "video kyc karo",
+    ],
+  },
+  {
+    category: "victim_distress",
+    label: "Victim panic / distress language",
+    weight: 15,
+    keywords: [
+      // A genuinely strong real-world signal in an active digital-arrest
+      // scam: the victim becomes panicked and pleads, having been convinced
+      // they're in real legal/physical danger.
+      "please help me",
+      "i'm scared",
+      "i am scared",
+      "save me",
+      // Hinglish
+      "bacha lo",
+      "bachao mujhe",
+      "mujhe bacha lo",
+      "main mar jaunga",
+      "main marne wala",
+      "meri jaan bachao",
+      "please madad karo",
+      "dar lag raha hai",
+      "bahut dar gaya",
+      // Devanagari
+      "बचा लो",
+      "मुझे बचाओ",
+      "मैं मरने वाला हूं",
+      "डर लग रहा है",
     ],
   },
 ];

@@ -34,11 +34,15 @@ export function ReplayTimeline({
   caseTitle,
   timeline,
   durationMs,
+  recordingUrl,
+  evidenceImageUrl,
 }: {
   caseId: string | null;
   caseTitle: string;
   timeline: TimelineEvent[];
   durationMs: number;
+  recordingUrl?: string;
+  evidenceImageUrl?: string;
 }) {
   const { cursorMs, isPlaying, play, pause, reset, seek } = useReplayPlayback(durationMs);
   const { generateReport, isGenerating } = useGenerateReport();
@@ -95,6 +99,29 @@ export function ReplayTimeline({
           className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-primary"
         />
       </div>
+
+      {recordingUrl && (
+        <div className="border-b border-border px-4 pb-3">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            Real recorded audio — listen to what was actually said
+          </p>
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio controls src={recordingUrl} className="h-9 w-full" preload="metadata" />
+        </div>
+      )}
+
+      {evidenceImageUrl && (
+        <div className="border-b border-border px-4 pb-3">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+            Uploaded chat screenshot (evidence)
+          </p>
+          <img
+            src={evidenceImageUrl}
+            alt="Uploaded chat screenshot evidence"
+            className="max-h-64 rounded-md border border-border-strong object-contain"
+          />
+        </div>
+      )}
 
       <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto px-4 pb-4">
         {timeline.map((event) => {

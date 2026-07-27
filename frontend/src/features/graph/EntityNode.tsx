@@ -1,6 +1,6 @@
 import { Handle, Position } from "reactflow";
 import type { NodeProps } from "reactflow";
-import { Building2, ShieldAlert, Target, User } from "lucide-react";
+import { Building2, Globe, ShieldAlert, Target, User } from "lucide-react";
 import type { GraphNodeType } from "@shared/types";
 import { cn } from "@/utils/cn";
 
@@ -16,6 +16,7 @@ const typeConfig: Record<GraphNodeType, { icon: typeof User; className: string }
   scammer: { icon: ShieldAlert, className: "border-danger/50 bg-danger/10 text-danger" },
   mule_account: { icon: Building2, className: "border-warning/50 bg-warning/10 text-warning" },
   campaign: { icon: Target, className: "border-primary/60 bg-primary/15 text-primary" },
+  infrastructure: { icon: Globe, className: "border-accent/60 bg-accent/15 text-accent" },
 };
 
 export function EntityNode({ data }: NodeProps<EntityNodeData>) {

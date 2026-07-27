@@ -17,6 +17,8 @@ export interface CaseSummary {
   startedAt: string;
   durationMs: number;
   victimAlias: string;
+  /** How this case's transcript was produced — distinguishes real, user-run cases from the scripted demo. */
+  source?: "live-mic" | "recorded-upload" | "screenshot-upload";
 }
 
 export interface CaseDetail extends CaseSummary {
@@ -26,4 +28,8 @@ export interface CaseDetail extends CaseSummary {
   edges: FraudGraphEdge[];
   timeline: TimelineEvent[];
   hotspot: MapHotspot;
+  /** Playable URL of the real recorded audio for this case (Firebase Storage), when captured. */
+  recordingUrl?: string;
+  /** Original chat-screenshot image URL (Firebase Storage), for screenshot-analysis cases. */
+  evidenceImageUrl?: string;
 }
