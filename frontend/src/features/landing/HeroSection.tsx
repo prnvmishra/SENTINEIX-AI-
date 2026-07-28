@@ -113,6 +113,10 @@ export function HeroSection() {
           </Button>
         </motion.div>
 
+        <motion.p variants={fadeUp} className="mt-6 text-sm text-text-secondary">
+          Built by <span className="font-semibold text-primary">Pranav Mishra</span>
+        </motion.p>
+
         <motion.p
           variants={fadeUp}
           className="mt-8 hidden font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted md:block"
