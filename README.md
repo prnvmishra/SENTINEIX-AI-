@@ -15,7 +15,13 @@ Real-time detection, investigation, and response for Digital Arrest and related 
 [![Groq](https://img.shields.io/badge/STT-Groq%20Whisper-F55036)](https://console.groq.com)
 [![License](https://img.shields.io/badge/License-MIT-informational)](#license)
 
-**Repo:** [github.com/prnvmishra/SENTINEIX-AI-](https://github.com/prnvmishra/SENTINEIX-AI-)
+**Repo:** [github.com/prnvmishra/SENTINEIX-AI-](https://github.com/prnvmishra/SENTINEIX-AI-)  
+**Live app:** [sentinelx-ai-xi.vercel.app](https://sentinelx-ai-xi.vercel.app)  
+**API health:** [sentinelx-backend-hdj5.onrender.com/api/health](https://sentinelx-backend-hdj5.onrender.com/api/health)
+
+**Built by [Pranav Mishra](https://github.com/prnvmishra)** · Contact: [saharaaindiaaa@gmail.com](mailto:saharaaindiaaa@gmail.com)
+
+> **Note for judges / recruiters:** the backend runs on Render’s free tier and may take **~30–60 seconds** to wake on the first request after idle. Refresh once if the dashboard shows a feed connection error.
 
 </div>
 
@@ -24,8 +30,10 @@ Real-time detection, investigation, and response for Digital Arrest and related 
 ## Table of contents
 
 - [What is SentinelX AI?](#what-is-sentinelx-ai)
+- [Live demo](#live-demo)
 - [What's real vs simulated](#whats-real-vs-simulated)
 - [Quick start](#quick-start)
+- [Deployment](#deployment)
 - [Core capabilities](#core-capabilities)
 - [Recorded-call analysis pipeline](#recorded-call-analysis-pipeline)
 - [Access control](#access-control)
@@ -38,6 +46,7 @@ Real-time detection, investigation, and response for Digital Arrest and related 
 - [Demo scenarios](#demo-scenarios)
 - [Scripts](#scripts)
 - [Disclaimer](#disclaimer)
+- [Author](#author)
 - [License](#license)
 
 ---
@@ -53,6 +62,24 @@ SentinelX AI is a hackathon-built **command-center platform** that:
 3. Labels **scammer vs victim** lines with a real model (not a canned script)
 4. Maps geography, fraud graph, and recommended actions
 5. Lets officers **register / complete cases**, export a PDF report, and escalate via real authority deep-links
+
+---
+
+## Live demo
+
+| Surface | URL |
+|---|---|
+| Frontend (Vercel) | https://sentinelx-ai-xi.vercel.app |
+| Backend health (Render) | https://sentinelx-backend-hdj5.onrender.com/api/health |
+| Source | https://github.com/prnvmishra/SENTINEIX-AI- |
+
+**Stack in production**
+
+- **Frontend** → Vercel (`frontend/` Vite app)
+- **Backend** → Render Web Service (`backend/` Express + Socket.IO)
+- **Data / auth** → Firebase Auth, Realtime Database, Storage
+
+**Cold start:** after ~15 minutes idle, Render free instances sleep. The next hit wakes the API (typically 30–60s). Sleeping does **not** delete the service; free instance hours reset each calendar month. Optional uptime pings can reduce sleep but consume free hours faster — leave them off unless you need an always-warm demo window.
 
 ---
 
@@ -100,6 +127,38 @@ npm run dev
 
 - Frontend: [http://localhost:5173](http://localhost:5173) (auto-shifts port if busy)
 - Backend: [http://localhost:4000](http://localhost:4000)
+
+---
+
+## Deployment
+
+### Render (backend)
+
+1. New **Web Service** → this repo → **Root Directory** `backend`
+2. **Build:** `npm install --include=dev && npm run build`
+3. **Start:** `npm start`
+4. Set env from `backend/.env.example` (see table below)
+5. Set `CLIENT_ORIGIN` to your Vercel URL (e.g. `https://sentinelx-ai-xi.vercel.app`) — required for CORS / Socket.IO
+6. Do **not** set `PORT` manually (Render injects it)
+
+Blueprint helper: [`render.yaml`](./render.yaml)
+
+### Vercel (frontend)
+
+1. Import this repo → **Root Directory** `frontend`
+2. Framework: Vite
+3. Env: `VITE_API_BASE_URL`, `VITE_SOCKET_URL`, `VITE_FIREBASE_*`, optional `VITE_EMAILJS_*`
+4. For this deployment:
+   - `VITE_API_BASE_URL=https://sentinelx-backend-hdj5.onrender.com/api`
+   - `VITE_SOCKET_URL=https://sentinelx-backend-hdj5.onrender.com`
+
+SPA rewrite: [`frontend/vercel.json`](./frontend/vercel.json)
+
+### After deploy
+
+1. Firebase **Authentication → Authorized domains** → add your Vercel host
+2. Publish RTDB / Storage rules from `firebase/`
+3. Confirm `GET /api/health` returns `"status":"ok"`
 
 ---
 
@@ -198,10 +257,11 @@ Shared TypeScript contracts live in `shared/types`.
 
 ```text
 /
-├── frontend/     Dashboard, landing, auth, cases, admin
+├── frontend/     Dashboard, landing, auth, cases, admin (+ vercel.json)
 ├── backend/      REST, Socket.IO, engines, STT, AI, intel clients
 ├── shared/       Shared TypeScript types
 ├── firebase/     database.rules.json + storage.rules (publish in Console)
+├── render.yaml   Render backend blueprint
 ├── README.md
 └── package.json  Root scripts (concurrently)
 ```
@@ -240,7 +300,7 @@ Without Firebase env vars, the app falls back to legacy demo JWT accounts in `ba
 | Variable | Required | Purpose |
 |---|---|---|
 | `PORT` | No (`4000`) | HTTP + Socket.IO |
-| `CLIENT_ORIGIN` | No | CORS allowlist (any `localhost:*` allowed in dev) |
+| `CLIENT_ORIGIN` | **Yes in prod** | CORS allowlist — production Vercel origin (comma-separated OK). Any `localhost:*` allowed in non-production |
 | `JWT_SECRET` | No | Legacy demo auth only |
 | `FIREBASE_PROJECT_ID` / `FIREBASE_DATABASE_URL` | No | Real Firebase auth + RTDB |
 | `OPENROUTER_API_KEY` | No | AI Threat Analyst + vision (free `:free` models) |
@@ -321,6 +381,14 @@ From repo root:
 ## Disclaimer
 
 Hackathon prototype. Scripted demos use mock dialogue only. Live Mic / upload / screenshot modes process data **you** provide on **your** deployment. This project does **not** access government identity, telecom CDR, or law-enforcement databases — no such public APIs exist, and the UI does not claim otherwise. PDF reports are for demonstration and human review, not courtroom evidence.
+
+Demo stack: Firebase Auth/RTDB/Storage, Socket.IO live analysis, OpenRouter/Groq AI, and EmailJS contact delivery. **Not a production government system.**
+
+---
+
+## Author
+
+**Pranav Mishra** — [GitHub](https://github.com/prnvmishra) · [saharaaindiaaa@gmail.com](mailto:saharaaindiaaa@gmail.com)
 
 ---
 
