@@ -9,7 +9,11 @@ import { ScrollReveal } from "@/components/ScrollReveal";
 import { isEmailJsConfigured, sendContactRequest } from "@/services/emailjs";
 
 const contactDetails = [
-  { icon: Mail, label: "operations@sentinelx.ai" },
+  {
+    icon: Mail,
+    label: "saharaaindiaaa@gmail.com",
+    href: "mailto:saharaaindiaaa@gmail.com",
+  },
   { icon: Phone, label: "1930 · National Cyber Crime Helpline" },
   { icon: MapPin, label: "Indian Cyber Crime Coordination Centre (I4C), New Delhi" },
 ];
@@ -64,12 +68,26 @@ export function ContactSection() {
             <div className="flex h-full flex-col gap-4">
               {contactDetails.map((detail) => {
                 const Icon = detail.icon;
-                return (
-                  <GlassPanel key={detail.label} className="flex items-center gap-3 transition-transform duration-300 hover:-translate-y-0.5">
+                const content = (
+                  <>
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/10">
                       <Icon className="h-4 w-4 text-primary" />
                     </div>
                     <span className="text-sm text-text-secondary">{detail.label}</span>
+                  </>
+                );
+                return (
+                  <GlassPanel
+                    key={detail.label}
+                    className="flex items-center gap-3 transition-transform duration-300 hover:-translate-y-0.5"
+                  >
+                    {"href" in detail && detail.href ? (
+                      <a href={detail.href} className="flex w-full items-center gap-3 hover:text-primary">
+                        {content}
+                      </a>
+                    ) : (
+                      content
+                    )}
                   </GlassPanel>
                 );
               })}
