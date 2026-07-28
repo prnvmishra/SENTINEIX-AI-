@@ -1,26 +1,34 @@
 # SentinelX AI — Frontend
 
-React 19 + TypeScript + Vite + Tailwind CSS v4 + Framer Motion dashboard and landing site for **SentinelX AI**.
+React 19 + Vite + Tailwind v4 dashboard and landing site for **SentinelX AI** (NFIP).
 
-> For the full project overview, architecture, environment variables, and setup instructions, see the [root README](../README.md).
+> Full setup, env vars, Firebase rules, and architecture: **[root README](../README.md)**.
 
 ## Quick start
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173 (auto-shifts port if taken)
+cp .env.example .env   # Firebase + optional EmailJS
+npm run dev            # http://localhost:5173 (port auto-shifts if busy)
 ```
 
 ## Scripts
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Start the Vite dev server with HMR |
-| `npm run build` | Type-check (`tsc -b`) and build for production |
-| `npm run preview` | Serve the production build locally |
-| `npm run lint` | Lint with [oxlint](https://oxc.rs) |
-| `npm run typecheck` | Type-check without emitting output |
+| `npm run dev` | Vite HMR |
+| `npm run build` | Type-check + production build |
+| `npm run preview` | Serve production build |
+| `npm run lint` | oxlint |
+| `npm run typecheck` | Type-check only |
 
-## Structure
+## Notable areas
 
-See the [directory tree in the root README](../README.md#monorepo-layout) for a full breakdown of `src/app`, `src/components`, `src/context`, `src/features`, `src/hooks`, `src/pages`, `src/services`, and `src/theme`.
+| Path | Role |
+|---|---|
+| `src/features/live/LiveSessionControls.tsx` | Live mic, recording upload, screenshot OCR |
+| `src/features/dashboard/` | Header (ported user menu), grid |
+| `src/pages/CasesPage.tsx` / `AdminPage.tsx` | Case registry + admin roster |
+| `src/services/emailjs.ts` | Landing contact form |
+| `src/utils/caseAccess.ts` | Owner / admin permissions |
+| `src/features/landing/HeroCanvas.tsx` | Interactive landing hero |
