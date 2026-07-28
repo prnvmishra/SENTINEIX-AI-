@@ -1,0 +1,41 @@
+# Render Blueprint — backend only.
+# Dashboard: New → Blueprint → connect GitHub repo prnvmishra/SENTINEIX-AI-
+# Or create a Web Service manually with the settings below.
+
+services:
+  - type: web
+    name: sentinelx-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      # Set these in the Render dashboard (Secrets) — do not commit real values:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: google/gemma-4-31b-it:free
+      - key: OPENROUTER_VISION_MODEL
+        value: nvidia/nemotron-nano-12b-v2-vl:free
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FRAUDINTEL_API_KEY
+        sync: false
+      - key: REALITYDEFENDER_API_KEY
+        sync: false

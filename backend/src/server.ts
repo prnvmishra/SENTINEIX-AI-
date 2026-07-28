@@ -31,6 +31,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 registerSocketGateway(io);
 
-httpServer.listen(env.port, () => {
-  console.log(`SentinelX backend listening on http://localhost:${env.port}`);
+// Bind 0.0.0.0 so Render's proxy can reach the process (not only localhost).
+httpServer.listen(env.port, "0.0.0.0", () => {
+  console.log(`SentinelX backend listening on http://0.0.0.0:${env.port}`);
 });

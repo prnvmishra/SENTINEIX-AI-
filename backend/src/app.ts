@@ -27,14 +27,20 @@ export function createApp() {
   // upload (see /api/analysis/recording) fits in a single JSON request.
   app.use(express.json({ limit: "30mb" }));
 
+  const healthPayload = () => ({
+    status: "ok" as const,
+    service: "sentinelx-backend",
+    timestamp: new Date().toISOString(),
+    firebaseEnabled: isFirebaseConfigured(),
+    aiAnalystEnabled: isAiAnalystEnabled(),
+  });
+
+  // Root + /api/health — both for Render / uptime pings (browsers often open /).
+  app.get("/", (_req, res) => {
+    res.json(healthPayload());
+  });
   app.get("/api/health", (_req, res) => {
-    res.json({
-      status: "ok",
-      service: "sentinelx-backend",
-      timestamp: new Date().toISOString(),
-      firebaseEnabled: isFirebaseConfigured(),
-      aiAnalystEnabled: isAiAnalystEnabled(),
-    });
+    res.json(healthPayload());
   });
 
   app.use("/api/auth", authRouter);
