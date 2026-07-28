@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { CircleMarker, MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import { useEffect, useMemo } from "react";
+import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { MapHotspot, MapPing } from "@shared/types";
 
@@ -29,25 +29,42 @@ function createPingIcon(): L.DivIcon {
   });
 }
 
+/** Zooms the map onto the latest live device GPS ping (street-level). */
+function FlyToDevicePing({ pings }: { pings: MapPing[] }) {
+  const map = useMap();
+  const latest = pings.length > 0 ? pings[pings.length - 1] : null;
+
+  useEffect(() => {
+    if (!latest) return;
+    map.flyTo([latest.lat, latest.lng], 15, { duration: 1.15 });
+  }, [latest?.lat, latest?.lng, latest?.timestampMs, map]);
+
+  return null;
+}
+
 export function IndiaMap({ hotspots, activePings }: { hotspots: MapHotspot[]; activePings: MapPing[] }) {
   const pingIcon = useMemo(() => createPingIcon(), []);
   const latestPings = useMemo(() => activePings.slice(-6), [activePings]);
+  const focus = latestPings.length > 0 ? latestPings[latestPings.length - 1] : null;
 
   return (
     <MapContainer
-      center={[22.9734, 78.6569]}
-      zoom={4.6}
-      zoomSnap={0.2}
+      center={focus ? [focus.lat, focus.lng] : [22.9734, 78.6569]}
+      zoom={focus ? 15 : 4.6}
+      zoomSnap={0.25}
       minZoom={4}
-      maxZoom={8}
-      scrollWheelZoom={false}
+      maxZoom={18}
+      scrollWheelZoom
       className="h-full w-full"
       attributionControl={false}
     >
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+        maxZoom={18}
       />
+
+      <FlyToDevicePing pings={latestPings} />
 
       {hotspots.map((hotspot) => (
         <CircleMarker
@@ -77,8 +94,26 @@ export function IndiaMap({ hotspots, activePings }: { hotspots: MapHotspot[]; ac
         <Marker key={`${ping.hotspotId}-${ping.timestampMs}-${index}`} position={[ping.lat, ping.lng]} icon={pingIcon}>
           <Popup>
             <div className="font-sans text-xs">
-              <p className="font-semibold text-slate-100">Live signal · {ping.city}</p>
-              <p className="text-slate-400">{ping.state}</p>
+              <p className="font-semibold text-slate-100">Your device · live GPS</p>
+              <p className="text-slate-300">
+                {ping.locality ?? ping.city}
+                {ping.state ? `, ${ping.state}` : ""}
+              </p>
+              {ping.addressLine && <p className="mt-0.5 text-slate-400">{ping.addressLine}</p>}
+              <p className="mt-1 font-mono text-[10px] text-cyan-300">
+                {ping.lat.toFixed(6)}, {ping.lng.toFixed(6)}
+              </p>
+              {typeof ping.accuracyMeters === "number" && (
+                <p className="text-[10px] text-slate-500">±{Math.round(ping.accuracyMeters)} m accuracy</p>
+              )}
+              <a
+                href={`https://www.google.com/maps?q=${ping.lat},${ping.lng}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-block text-[10px] text-cyan-400 underline"
+              >
+                Open exact pin in Google Maps
+              </a>
             </div>
           </Popup>
         </Marker>

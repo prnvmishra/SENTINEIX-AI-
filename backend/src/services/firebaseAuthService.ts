@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { AuthUser, UserRole } from "@shared/types";
+import type { AuthUser, UserPermissions, UserRole } from "@shared/types";
 import { env } from "../utils/env.js";
 import { ApiError } from "../middleware/error.middleware.js";
 
@@ -60,6 +60,30 @@ interface RtdbUserProfile {
   role?: UserRole;
   organization?: string;
   avatarColor?: string;
+  permissions?: Partial<UserPermissions>;
+}
+
+// A plain citizen filing a complaint should never be able to close/delete a
+// case themselves — mirrors the frontend's defaultPermissionsForRole so both
+// sides agree on the default access model for each operational role.
+function defaultPermissionsForRole(role: UserRole): UserPermissions {
+  const isAdmin = role === "gov_admin";
+  const isCitizen = role === "citizen";
+  return {
+    canMarkCasesSolved: !isCitizen,
+    canDeleteCases: isAdmin,
+    canManageOfficers: isAdmin,
+  };
+}
+
+function resolvePermissions(role: UserRole, stored: Partial<UserPermissions> | undefined): UserPermissions {
+  const defaults = defaultPermissionsForRole(role);
+  if (!stored) return defaults;
+  return {
+    canMarkCasesSolved: stored.canMarkCasesSolved ?? defaults.canMarkCasesSolved,
+    canDeleteCases: stored.canDeleteCases ?? defaults.canDeleteCases,
+    canManageOfficers: stored.canManageOfficers ?? defaults.canManageOfficers,
+  };
 }
 
 export async function fetchFirebaseUserProfile(uid: string, idToken: string): Promise<RtdbUserProfile | null> {
@@ -80,13 +104,15 @@ export async function fetchFirebaseUserProfile(uid: string, idToken: string): Pr
 export async function resolveFirebaseAuthUser(idToken: string): Promise<AuthUser> {
   const decoded = await verifyFirebaseIdToken(idToken);
   const profile = await fetchFirebaseUserProfile(decoded.uid, idToken);
+  const role = profile?.role ?? "citizen";
 
   return {
     id: decoded.uid,
     name: profile?.name ?? decoded.name ?? decoded.email?.split("@")[0] ?? "SentinelX User",
     email: decoded.email ?? "",
-    role: profile?.role ?? "citizen",
+    role,
     organization: profile?.organization ?? "Unaffiliated",
     avatarColor: profile?.avatarColor ?? "#06b6d4",
+    permissions: resolvePermissions(role, profile?.permissions),
   };
 }

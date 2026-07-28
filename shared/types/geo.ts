@@ -15,5 +15,11 @@ export interface MapPing {
   lng: number;
   city: string;
   state: string;
+  /** Suburb / neighbourhood when reverse-geocode provides it */
+  locality?: string;
+  /** Street / area line for investigators */
+  addressLine?: string;
+  /** Browser Geolocation accuracy in metres when available */
+  accuracyMeters?: number;
   timestampMs: number;
 }

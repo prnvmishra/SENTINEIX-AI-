@@ -13,9 +13,9 @@ export const GlassPanel = forwardRef<HTMLDivElement, GlassPanelProps>(
       <div
         ref={ref}
         className={cn(
-          "glass-panel relative rounded-xl",
+          "glass-panel panel-shine relative overflow-hidden rounded-2xl",
           !noPadding && "p-4",
-          glow && "shadow-[0_0_24px_-8px_var(--color-primary)]",
+          glow && "shadow-[0_0_40px_-16px_color-mix(in_srgb,var(--color-primary)_55%,transparent)]",
           className,
         )}
         {...props}

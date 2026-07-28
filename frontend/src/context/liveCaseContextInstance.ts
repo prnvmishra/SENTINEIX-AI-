@@ -2,6 +2,7 @@ import { createContext } from "react";
 import type {
   AiInsight,
   AppNotification,
+  CaseDetail,
   CaseSummary,
   DecisionRecommendation,
   DeepfakeCheckResult,
@@ -41,14 +42,31 @@ export interface LiveCaseContextValue extends LiveCaseState {
   resumeSimulation: () => void;
   startLiveSession: () => void;
   submitLiveLine: (text: string, speaker: SpeakerType) => void;
-  submitLiveLocation: (lat: number, lng: number) => void;
+  submitLiveLocation: (lat: number, lng: number, accuracyMeters?: number) => void;
   submitLiveMediaCheck: (mediaBase64: string, mediaType: "audio" | "image", fileName: string) => void;
   endLiveSession: () => void;
-  /** Whether the NEXT genuine session (live mic / recorded / screenshot) started will be saved to the real case registry (Firebase) — shown in Analytics/Historical Cases. Default true. */
-  caseRegistrationEnabled: boolean;
-  setCaseRegistrationEnabled: (enabled: boolean) => void;
-  /** Set the instant a genuine session that WAS registered transitions to "completed" in Firebase — lets the UI show an explicit confirmation instead of it happening silently. */
-  lastCompletedRegisteredCaseId: string | null;
+  /**
+   * Snapshot of the last finished analysis (live mic / recorded / screenshot)
+   * that has NOT been written to Firebase yet. Null when nothing is waiting
+   * for an explicit "Register this case" click — analysis alone never saves.
+   */
+  pendingRegistration: CaseDetail | null;
+  /** Attach evidence URLs onto the pending snapshot before registering. Pass caseId when known. */
+  attachPendingEvidence: (
+    evidence: {
+      recordingUrl?: string;
+      evidenceImageUrl?: string;
+      durationMs?: number;
+    },
+    forCaseId?: string,
+  ) => void;
+  /** Writes pendingRegistration to Firebase as ONGOING. Returns null on success, error string on failure. */
+  registerPendingCase: () => Promise<string | null>;
+  /** Drops the pending snapshot without saving (throwaway / no-threat analysis). */
+  discardPendingRegistration: () => void;
+  /** Last case id successfully registered as ONGOING (for confirmation banner). */
+  lastRegisteredCaseId: string | null;
+  caseRegistryError: string | null;
 }
 
 export const initialLiveCaseState: LiveCaseState = {

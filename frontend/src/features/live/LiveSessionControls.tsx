@@ -1,13 +1,16 @@
 import { useCallback, useRef, useState } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   FileAudio,
   Fingerprint,
+  FolderPlus,
   ImageIcon,
   Loader2,
   Mic,
   MicOff,
   ShieldAlert,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/Button";
@@ -22,9 +25,9 @@ import { getRealDeviceLocation } from "@/utils/geolocation";
 import { analysisApi } from "@/services/analysisApi";
 import type { RecordedCallAnalysisResponse, TextConversationAnalysisResponse } from "@/services/analysisApi";
 import { ApiClientError } from "@/services/apiClient";
-import { uploadCaseEvidenceImage, uploadCaseRecording } from "@/services/mediaStorage";
-import { updateRegisteredCase } from "@/services/caseRegistry";
+import { uploadCaseEvidenceImage, uploadCaseRecording, getAudioDurationMs, blobToDataUrl } from "@/services/mediaStorage";
 import { extractTextFromImage, splitChatTextIntoLines } from "@/services/ocrClient";
+import { AudioPlayer } from "@/features/replay/AudioPlayer";
 import { cn } from "@/utils/cn";
 
 const riskTone: Record<string, "danger" | "warning" | "neutral" | "success"> = {
@@ -65,10 +68,15 @@ export function LiveSessionControls() {
     submitLiveLocation,
     submitLiveMediaCheck,
     endLiveSession,
-    caseRegistrationEnabled,
-    setCaseRegistrationEnabled,
-    lastCompletedRegisteredCaseId,
+    pendingRegistration,
+    attachPendingEvidence,
+    registerPendingCase,
+    discardPendingRegistration,
+    lastRegisteredCaseId,
+    caseRegistryError,
   } = useLiveCase();
+
+  const [registering, setRegistering] = useState(false);
 
   const [language, setLanguage] = useState<RecognitionLanguage>("en-IN");
   const [speaker, setSpeaker] = useState<"scammer" | "victim">("scammer");
@@ -77,16 +85,20 @@ export function LiveSessionControls() {
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [recordingSpeaker, setRecordingSpeaker] = useState<"scammer" | "victim">("scammer");
+  const [recordingLanguage, setRecordingLanguage] = useState<"auto" | "hi" | "en">("auto");
   const [recordingStatus, setRecordingStatus] = useState<"idle" | "analyzing" | "done" | "error">("idle");
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [recordingResult, setRecordingResult] = useState<RecordedCallAnalysisResponse | null>(null);
   const recordingInputRef = useRef<HTMLInputElement>(null);
 
-  const [screenshotSpeaker, setScreenshotSpeaker] = useState<"scammer" | "victim">("scammer");
-  const [screenshotStatus, setScreenshotStatus] = useState<"idle" | "reading" | "analyzing" | "done" | "error">("idle");
+  const [screenshotStatus, setScreenshotStatus] = useState<
+    "idle" | "reading" | "analyzing" | "uploading" | "done" | "error"
+  >("idle");
   const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [screenshotResult, setScreenshotResult] = useState<TextConversationAnalysisResponse | null>(null);
+  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<string | null>(null);
+  const [voiceUploadStatus, setVoiceUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [localRecordingPreviewUrl, setLocalRecordingPreviewUrl] = useState<string | null>(null);
   const [ocrProgress, setOcrProgress] = useState(0);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
 
@@ -102,8 +114,12 @@ export function LiveSessionControls() {
     setScreenshotStatus("reading");
     setScreenshotError(null);
     setScreenshotResult(null);
+    setScreenshotPreviewUrl(null);
     setOcrProgress(0);
     try {
+      const previewUrl = await fileToBase64(file);
+      setScreenshotPreviewUrl(previewUrl);
+
       const rawText = await extractTextFromImage(file, setOcrProgress);
       const lines = splitChatTextIntoLines(rawText);
       if (lines.length === 0) {
@@ -114,16 +130,21 @@ export function LiveSessionControls() {
       const result = await analysisApi.analyzeText(token, {
         lines,
         victimAlias: user?.name ?? "Citizen (chat screenshot)",
-        speaker: screenshotSpeaker,
       });
       setScreenshotResult(result);
-      setScreenshotStatus("done");
+      // Unlock register immediately with the local preview — never block on Storage.
+      attachPendingEvidence({ evidenceImageUrl: previewUrl });
+      setScreenshotStatus("uploading");
 
-      // Attach the original screenshot as evidence, same pattern as the
-      // recorded-call audio upload — best-effort, never blocks the result.
-      void uploadCaseEvidenceImage(result.caseId, file).then((url) => {
-        if (url) updateRegisteredCase(result.caseId, { evidenceImageUrl: url });
-      });
+      const uploaded = await uploadCaseEvidenceImage(result.caseId, file);
+      if (uploaded) {
+        // Prefer Firebase URL when available; otherwise compressed inline stays.
+        attachPendingEvidence({ evidenceImageUrl: uploaded.url });
+        setScreenshotStatus("done");
+      } else {
+        // Local preview already attached — still allow register.
+        setScreenshotStatus("done");
+      }
     } catch (err) {
       setScreenshotError(
         err instanceof ApiClientError
@@ -150,29 +171,61 @@ export function LiveSessionControls() {
     setRecordingStatus("analyzing");
     setRecordingError(null);
     setRecordingResult(null);
+    setVoiceUploadStatus("uploading");
+    setLocalRecordingPreviewUrl(null);
     try {
+      // Keep a local preview immediately so the user can hear the file even if Storage fails.
+      const localUrl = URL.createObjectURL(file);
+      setLocalRecordingPreviewUrl(localUrl);
+
       const { base64, mimeType } = await fileToBase64WithMime(file);
       const result = await analysisApi.analyzeRecording(token, {
         audioBase64: base64,
         mimeType,
         victimAlias: user?.name ?? "Citizen (recorded call)",
-        speaker: recordingSpeaker,
-        language: language === "hi-IN" ? "hi" : "en",
+        language: recordingLanguage,
       });
       setRecordingResult(result);
       setRecordingStatus("done");
 
-      // By the time this HTTP response arrives, the server has already
-      // broadcast case:start/case:end over the socket for this recording,
-      // so LiveCaseContext has already registered it in the case registry.
-      // Attach the real original audio file so it's replayable from
-      // Historical Cases — best-effort, never blocks the analysis result.
-      void uploadCaseRecording(result.caseId, file).then((url) => {
-        if (url) updateRegisteredCase(result.caseId, { recordingUrl: url });
-      });
+      const durationMs = await getAudioDurationMs(file);
+
+      // Attach inline copy FIRST (guarantees green badge) — then upgrade to Storage URL if available.
+      let attached = false;
+      if (file.size <= 3_500_000) {
+        try {
+          const dataUrl = await blobToDataUrl(file);
+          attachPendingEvidence({ recordingUrl: dataUrl, durationMs: durationMs || undefined }, result.caseId);
+          attached = true;
+          setVoiceUploadStatus("done");
+        } catch {
+          // Fall through to Storage-only path below.
+        }
+      }
+
+      const uploaded = await uploadCaseRecording(result.caseId, file, file.name);
+      if (uploaded) {
+        attachPendingEvidence({ recordingUrl: uploaded.url, durationMs: durationMs || undefined }, result.caseId);
+        attached = true;
+        setVoiceUploadStatus("done");
+        URL.revokeObjectURL(localUrl);
+        setLocalRecordingPreviewUrl(null);
+      } else if (!attached) {
+        // Last resort: blob URL works for this browser session only.
+        attachPendingEvidence({ recordingUrl: localUrl, durationMs: durationMs || undefined }, result.caseId);
+        setVoiceUploadStatus("error");
+        setRecordingError(
+          "Audio attached for this session, but Firebase Storage upload failed. Publish Storage rules for recordings/ so Historical Cases keeps playable audio after refresh.",
+        );
+      } else {
+        setVoiceUploadStatus("done");
+        URL.revokeObjectURL(localUrl);
+        setLocalRecordingPreviewUrl(null);
+      }
     } catch (err) {
       setRecordingError(err instanceof ApiClientError ? err.message : "Analysis failed. Please try again.");
       setRecordingStatus("error");
+      setVoiceUploadStatus("error");
     } finally {
       if (recordingInputRef.current) recordingInputRef.current.value = "";
     }
@@ -191,16 +244,30 @@ export function LiveSessionControls() {
   const isLiveActive = isRunning && isLiveMicSession(activeCase);
   const scriptedSimRunning = isRunning && !isLiveMicSession(activeCase);
 
+  function handleLanguageChange(next: RecognitionLanguage) {
+    setLanguage(next);
+    // Mid-session switch so English stays Latin and Hindi can use Devanagari
+    if (isLiveActive && speech.isListening) {
+      speech.setLanguage(next);
+    }
+  }
+
   async function handleStart() {
+    // Start raw audio capture FIRST so Web Speech doesn't leave MediaRecorder
+    // with an empty/stolen mic stream (common cause of silent evidence).
+    const capture = await audioRecorder.start();
     startLiveSession();
     speech.start(language);
-    void audioRecorder.start();
+
+    if (!capture.ok) {
+      console.warn("[live-mic] audio capture failed:", capture.error);
+    }
 
     setLocationStatus("pending");
     try {
-      const { lat, lng } = await getRealDeviceLocation();
+      const { lat, lng, accuracyMeters } = await getRealDeviceLocation();
       setCoords({ lat, lng });
-      submitLiveLocation(lat, lng);
+      submitLiveLocation(lat, lng, accuracyMeters);
       setLocationStatus("ok");
     } catch {
       setLocationStatus("denied");
@@ -212,16 +279,73 @@ export function LiveSessionControls() {
     speech.stop();
     endLiveSession();
     setLocationStatus("idle");
+    setVoiceUploadStatus("uploading");
+    setLocalRecordingPreviewUrl(null);
 
-    // Attach the real captured mic audio so this session is listen-back-able
-    // from Historical Cases, not just its transcript. Best-effort — never
-    // blocks ending the session.
-    void audioRecorder.stop().then((blob) => {
-      if (!blob || !caseId) return;
-      void uploadCaseRecording(caseId, blob).then((url) => {
-        if (url) updateRegisteredCase(caseId, { recordingUrl: url });
-      });
+    void audioRecorder.stop().then(async ({ blob, durationMs: wallDurationMs, error: captureError }) => {
+      if (!blob || !caseId) {
+        setVoiceUploadStatus("error");
+        if (captureError) {
+          console.warn("[live-mic] no audio blob:", captureError);
+        }
+        return;
+      }
+
+      // Prefer wall-clock duration — MediaRecorder webm often reports wrong
+      // duration in <audio>, which makes playback feel like 2x speed.
+      const mediaDurationMs = await getAudioDurationMs(blob);
+      const durationMs = Math.max(wallDurationMs, mediaDurationMs);
+
+      const localUrl = URL.createObjectURL(blob);
+      setLocalRecordingPreviewUrl(localUrl);
+
+      let attached = false;
+      // Prefer Firebase Storage for live mic (keeps RTDB small). Inline only as backup.
+      const uploaded = await uploadCaseRecording(caseId, blob);
+      if (uploaded) {
+        attachPendingEvidence({ recordingUrl: uploaded.url, durationMs: durationMs || undefined }, caseId);
+        attached = true;
+        setVoiceUploadStatus("done");
+        if (uploaded.source === "firebase") {
+          URL.revokeObjectURL(localUrl);
+          setLocalRecordingPreviewUrl(null);
+        }
+      }
+
+      if (!attached && blob.size <= 3_500_000) {
+        try {
+          const dataUrl = await blobToDataUrl(blob);
+          attachPendingEvidence({ recordingUrl: dataUrl, durationMs: durationMs || undefined }, caseId);
+          attached = true;
+          setVoiceUploadStatus("done");
+        } catch {
+          // fall through
+        }
+      }
+
+      if (!attached) {
+        attachPendingEvidence({ recordingUrl: localUrl, durationMs: durationMs || undefined }, caseId);
+        setVoiceUploadStatus("error");
+      }
     });
+  }
+
+  const screenshotEvidenceReady =
+    pendingRegistration?.source !== "screenshot-upload" || Boolean(pendingRegistration.evidenceImageUrl);
+
+  const canRegister =
+    screenshotEvidenceReady &&
+    (pendingRegistration?.source === "screenshot-upload" ||
+      Boolean(pendingRegistration?.recordingUrl) ||
+      voiceUploadStatus !== "uploading");
+
+  async function handleRegisterCase() {
+    if (!canRegister) return;
+    setRegistering(true);
+    await registerPendingCase();
+    setRegistering(false);
+    setVoiceUploadStatus("idle");
+    setLocalRecordingPreviewUrl(null);
   }
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
@@ -240,55 +364,140 @@ export function LiveSessionControls() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-3.5">
-      <div className="glass-panel rounded-lg border border-border p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <Fingerprint className="h-3.5 w-3.5 text-primary" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-text-primary">
-            Live Mic Session — Real Speech, Real Analysis
-          </span>
+    <div className="flex flex-col gap-3 p-3.5 pb-10">
+      {!isLiveActive && pendingRegistration && (
+        <div className="flex flex-col gap-2 rounded-lg border border-primary/40 bg-primary/10 p-3">
+          <div className="flex items-start gap-2 text-[11px] text-text-secondary">
+            <FolderPlus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <span>
+              Analysis finished for{" "}
+              <span className="font-mono text-text-primary">{pendingRegistration.id}</span> — score{" "}
+              <strong className="text-text-primary">
+                {pendingRegistration.finalScore}/100 ({pendingRegistration.threatLevel.toUpperCase()})
+              </strong>
+              . Nothing is in the database yet. Register only if you want this counted as a real case
+              (threat or not — sometimes you just need a record of a clean check).
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-text-muted">
+            {pendingRegistration.recordingUrl ? (
+              <Badge tone="success">Voice evidence attached</Badge>
+            ) : voiceUploadStatus === "uploading" ? (
+              <Badge tone="warning">Voice uploading…</Badge>
+            ) : (
+              <Badge tone="neutral">Voice evidence pending / none</Badge>
+            )}
+            {pendingRegistration.evidenceImageUrl ? (
+              <Badge tone="success">Screenshot evidence attached</Badge>
+            ) : null}
+            <Badge tone="warning">Will save as ONGOING</Badge>
+          </div>
+          {pendingRegistration.recordingUrl && (
+            <div className="rounded-md border border-success/30 bg-success/10 p-2">
+              <p className="mb-1.5 text-[10px] font-medium text-success">Voice evidence ready — play below</p>
+              <AudioPlayer src={pendingRegistration.recordingUrl} />
+            </div>
+          )}
+          {!pendingRegistration.recordingUrl && localRecordingPreviewUrl && (
+            <div className="rounded-md border border-border-strong bg-surface-raised/40 p-2">
+              <p className="mb-1.5 text-[10px] font-medium text-text-secondary">Local voice preview</p>
+              <AudioPlayer src={localRecordingPreviewUrl} />
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={handleRegisterCase}
+              disabled={registering || !canRegister}
+              title={
+                canRegister
+                  ? "Saves as ONGOING only — never auto-completes"
+                  : "Wait until evidence upload finishes (green badge)"
+              }
+            >
+              {registering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderPlus className="h-3.5 w-3.5" />}{" "}
+              Yes — register as ONGOING
+            </Button>
+            <Button size="sm" variant="ghost" onClick={discardPendingRegistration} disabled={registering}>
+              <Trash2 className="h-3.5 w-3.5" /> No — discard
+            </Button>
+          </div>
+          {!pendingRegistration.recordingUrl && pendingRegistration.source !== "screenshot-upload" && (
+            <p className="text-[10px] text-warning">
+              {voiceUploadStatus === "uploading"
+                ? "Saving voice evidence… green badge appears when attached."
+                : voiceUploadStatus === "error"
+                  ? "Could not persist audio to Firebase Storage. If preview plays above, you can still register — publish Storage rules for recordings/ for permanent playback."
+                  : "Voice evidence not attached yet."}
+            </p>
+          )}
+          {!pendingRegistration.evidenceImageUrl && pendingRegistration.source === "screenshot-upload" && (
+            <>
+              {screenshotPreviewUrl && (
+                <div className="rounded-md border border-border-strong bg-surface-raised/40 p-2">
+                  <p className="mb-1.5 text-[10px] font-medium text-text-secondary">Chat screenshot (local preview)</p>
+                  <img
+                    src={screenshotPreviewUrl}
+                    alt="WhatsApp chat screenshot preview"
+                    className="max-h-28 w-full rounded border border-border object-contain"
+                  />
+                </div>
+              )}
+              <p className="text-[10px] text-warning">
+                {screenshotStatus === "uploading"
+                  ? "Saving screenshot (max ~20s) — if Firebase Storage hangs we attach a compressed copy automatically."
+                  : "Screenshot evidence not attached yet. Wait for the green \"Screenshot evidence attached\" badge before registering so Historical Cases shows the chat image."}
+              </p>
+            </>
+          )}
+          {pendingRegistration.evidenceImageUrl && pendingRegistration.source === "screenshot-upload" && (
+            <div className="rounded-md border border-border-strong bg-surface-raised/40 p-2">
+              <p className="mb-1.5 text-[10px] font-medium text-success">Screenshot ready — you can register now</p>
+              <img
+                src={pendingRegistration.evidenceImageUrl}
+                alt="WhatsApp chat screenshot evidence"
+                className="max-h-28 w-full rounded border border-border object-contain"
+              />
+            </div>
+          )}
         </div>
-        <p className="text-[11px] leading-relaxed text-text-muted">
-          Put a suspicious call on speakerphone near this device. Your browser's own speech recognition (100% free,
-          no API key) transcribes it live, and the exact same threat engine used in the demo scenario analyzes the
-          real words as they're spoken. Any phone number, UPI ID, or domain/link the caller <em>says out loud</em> is
-          automatically checked against real intel sources (CallTracer for numbers, FraudIntel India when
-          configured, IP/DNS geolocation for domains/links) — and you can scan a media file for deepfake signs via
-          Reality Defender below.
-        </p>
-        <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-text-muted">
-          <strong className="text-text-secondary">Important — what "IP tracking" here can and can't do:</strong> a
-          normal phone call (GSM/mobile network) never carries the caller's IP address to your phone — that's a
-          telecom-network limitation, not a gap in this app, and no consumer app (Truecaller included) can bypass it.
-          The IP/domain lookup above only fires on a website/link the scammer mentions (e.g. a fake "verification
-          portal" they tell you to open) — it locates <em>that server</em>, not the phone line itself. Tracing the
-          call's real origin requires the telecom's Call Detail Records, which only police can obtain via a lawful
-          request — use "Report to Authorities" for that.
-        </p>
-      </div>
-
-      {!isLiveActive && (
-        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border-strong bg-surface-raised/40 p-2.5 text-[11px] text-text-secondary">
-          <input
-            type="checkbox"
-            checked={caseRegistrationEnabled}
-            onChange={(e) => setCaseRegistrationEnabled(e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 accent-primary"
-          />
-          <span>
-            <strong className="text-text-primary">Register this as a real case</strong> — saves it to the case
-            database as <Badge tone="warning" className="mx-1 align-middle text-[9px]">ONGOING</Badge> the moment you
-            start, automatically flips to <Badge tone="success" className="mx-1 align-middle text-[9px]">COMPLETED</Badge>{" "}
-            when you stop, and counts toward the real numbers on the Analytics page and Historical Cases. Uncheck this
-            only for a throwaway test run you don't want counted.
-          </span>
-        </label>
       )}
 
-      {lastCompletedRegisteredCaseId && !isLiveActive && (
-        <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-2.5 text-[11px] text-success">
-          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> Case <span className="font-mono">{lastCompletedRegisteredCaseId}</span>{" "}
-          was marked COMPLETED and saved — check the Analytics page or Historical Cases to see it.
+      <details className="glass-panel rounded-lg border border-border p-3">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-primary">
+          <Fingerprint className="h-3.5 w-3.5 text-primary" />
+          Live Mic Session — how it works
+        </summary>
+        <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+          Put a suspicious call on speakerphone near this device. Browser speech recognition transcribes live; the
+          same threat engine analyzes the words. Numbers / UPI / links mentioned out loud are checked against intel
+          sources.
+        </p>
+        <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-text-muted">
+          <strong className="text-text-secondary">IP tracking note:</strong> a normal phone call never carries the
+          caller&apos;s IP to your phone. Domain lookup only fires on a link the scammer mentions — not the phone
+          line. Telecom CDR requires police.
+        </p>
+      </details>
+
+      {lastRegisteredCaseId && !isLiveActive && !caseRegistryError && !pendingRegistration && (
+        <div className="flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 p-2.5 text-[11px] text-success">
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Case <span className="font-mono">{lastRegisteredCaseId}</span> is now{" "}
+            <strong>ONGOING</strong> in the database with its evidence. Open{" "}
+            <strong>Cases</strong> or <strong>Historical Cases</strong> to review / delete it, or{" "}
+            <strong>Mark Complete</strong> when the investigation finishes — Analytics updates live.
+          </span>
+        </div>
+      )}
+
+      {caseRegistryError && (
+        <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-2.5 text-[11px] text-danger">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <strong>Case was NOT saved:</strong> {caseRegistryError}
+          </span>
         </div>
       )}
 
@@ -308,25 +517,41 @@ export function LiveSessionControls() {
 
       {!isLiveActive ? (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-text-muted">Recognition language:</span>
-            <div className="flex gap-1">
-              {(["en-IN", "hi-IN"] as RecognitionLanguage[]).map((lang) => (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-text-muted">Transcript script:</span>
+              <div className="flex flex-wrap gap-1">
                 <button
-                  key={lang}
                   type="button"
-                  onClick={() => setLanguage(lang)}
+                  onClick={() => handleLanguageChange("en-IN")}
                   className={cn(
                     "rounded-md border px-2 py-1 text-[11px]",
-                    language === lang
+                    language === "en-IN"
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border-strong text-text-secondary hover:border-primary/40",
                   )}
                 >
-                  {lang === "en-IN" ? "English (India)" : "हिन्दी (Hindi)"}
+                  English + Hinglish
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => handleLanguageChange("hi-IN")}
+                  className={cn(
+                    "rounded-md border px-2 py-1 text-[11px]",
+                    language === "hi-IN"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border-strong text-text-secondary hover:border-primary/40",
+                  )}
+                >
+                  हिन्दी (देवनागरी)
+                </button>
+              </div>
             </div>
+            <p className="text-[10px] leading-relaxed text-text-muted">
+              {language === "en-IN"
+                ? "English bologe → English me likhega. Hinglish Roman me aayega. Mixed calls ke liye yehi best hai."
+                : "Shuddh Hindi (देवनागरी) ke liye. English words bhi Devanagari me aa sakte hain — mixed call pe pehla option use karo."}
+            </p>
           </div>
           <Button
             variant="primary"
@@ -353,39 +578,35 @@ export function LiveSessionControls() {
               <span className="text-xs font-semibold text-text-primary">Already recorded the call? Analyze it now</span>
             </div>
             <p className="mb-2 text-[11px] leading-relaxed text-text-muted">
-              Upload the audio file — it's transcribed with a real speech-to-text model (Groq Whisper, free tier).
-              Since a single audio file has no separate channel per person, the AI analyst then reads the full
-              transcript and labels EACH line individually as caller or you, based on turn-taking and content (who's
-              demanding money vs. who's afraid/complying) — not one label stamped on the whole call. The pick below is
-              only a fallback if that AI step is unavailable.
+              Upload the audio — long calls are chunked so the{" "}
+              <strong className="text-text-secondary">full conversation</strong> is covered from real Whisper STT (no
+              demo script). English stays English; non-Latin Hindi is romanized only. Victim/scammer labels come from
+              real AI — if that fails, lines show UNKNOWN (never a fake guess).
             </p>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-[11px] text-text-muted">Fallback — if speaker detection is unavailable, assume:</span>
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => setRecordingSpeaker("scammer")}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-[11px]",
-                    recordingSpeaker === "scammer"
-                      ? "border-danger bg-danger/10 text-danger"
-                      : "border-border-strong text-text-secondary hover:border-danger/40",
-                  )}
-                >
-                  Caller
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRecordingSpeaker("victim")}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-[11px]",
-                    recordingSpeaker === "victim"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border-strong text-text-secondary hover:border-primary/40",
-                  )}
-                >
-                  Me
-                </button>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-text-muted">Transcript language:</span>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    { id: "auto" as const, label: "Auto (EN + Hinglish)" },
+                    { id: "hi" as const, label: "Hinglish (Roman)" },
+                    { id: "en" as const, label: "English only" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setRecordingLanguage(opt.id)}
+                    className={cn(
+                      "rounded-md border px-2 py-1 text-[11px]",
+                      recordingLanguage === opt.id
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border-strong text-text-secondary hover:border-primary/40",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
             <input
@@ -399,8 +620,8 @@ export function LiveSessionControls() {
 
             {recordingStatus === "analyzing" && (
               <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
-                <Loader2 className="h-3 w-3 animate-spin" /> Transcribing and analyzing — watch the panels above
-                update live as it processes…
+                <Loader2 className="h-3 w-3 animate-spin" /> Transcribing full audio (long calls use multiple chunks) —
+                watch the panels above update…
               </div>
             )}
             {recordingStatus === "error" && recordingError && (
@@ -432,46 +653,19 @@ export function LiveSessionControls() {
             </div>
             <p className="mb-2 text-[11px] leading-relaxed text-text-muted">
               Instagram/WhatsApp sextortion and blackmail scams usually leave a chat trail instead of a call. Upload a
-              screenshot — text is extracted entirely on this device (free, on-device OCR, no API key, image never
-              leaves your browser). The AI analyst then reads every extracted message and labels EACH one
-              individually as scammer or you, from context — not one label for the whole thread — before running the
-              exact same threat/decision/AI engines.
+              screenshot — text is extracted on this device (OCR). Real AI labels each message as scammer or victim; if
+              AI is down, labels show UNKNOWN (no fake fallback).
             </p>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-[11px] text-text-muted">Fallback — if speaker detection is unavailable, assume:</span>
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => setScreenshotSpeaker("scammer")}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-[11px]",
-                    screenshotSpeaker === "scammer"
-                      ? "border-danger bg-danger/10 text-danger"
-                      : "border-border-strong text-text-secondary hover:border-danger/40",
-                  )}
-                >
-                  Scammer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setScreenshotSpeaker("victim")}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-[11px]",
-                    screenshotSpeaker === "victim"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border-strong text-text-secondary hover:border-primary/40",
-                  )}
-                >
-                  Me
-                </button>
-              </div>
-            </div>
             <input
               ref={screenshotInputRef}
               type="file"
               accept="image/*"
               onChange={handleScreenshotUpload}
-              disabled={screenshotStatus === "reading" || screenshotStatus === "analyzing"}
+              disabled={
+                screenshotStatus === "reading" ||
+                screenshotStatus === "analyzing" ||
+                screenshotStatus === "uploading"
+              }
               className="w-full text-[11px] text-text-muted"
             />
 
@@ -485,6 +679,11 @@ export function LiveSessionControls() {
               <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
                 <Loader2 className="h-3 w-3 animate-spin" /> Text extracted — analyzing for scam/blackmail
                 indicators…
+              </div>
+            )}
+            {screenshotStatus === "uploading" && (
+              <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
+                <Loader2 className="h-3 w-3 animate-spin" /> Saving WhatsApp/chat screenshot to evidence storage…
               </div>
             )}
             {screenshotStatus === "error" && screenshotError && (
@@ -510,9 +709,8 @@ export function LiveSessionControls() {
             {locationStatus === "pending" && <Badge tone="neutral">Resolving real device location…</Badge>}
             {locationStatus === "ok" && <Badge tone="success">Real location captured</Badge>}
             {locationStatus === "denied" && <Badge tone="warning">Location permission denied</Badge>}
-            {caseRegistrationEnabled && <Badge tone="warning">Saving as ONGOING case</Badge>}
             <Button variant="danger" size="sm" onClick={handleStop}>
-              <MicOff className="h-3.5 w-3.5" /> Stop &amp; Mark Complete
+              <MicOff className="h-3.5 w-3.5" /> Stop Session
             </Button>
           </div>
 
@@ -533,6 +731,41 @@ export function LiveSessionControls() {
               "precise" enabled for a tighter fix.
             </div>
           )}
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-text-muted">Transcript script:</span>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleLanguageChange("en-IN")}
+                  className={cn(
+                    "rounded-md border px-2 py-1 text-[11px]",
+                    language === "en-IN"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border-strong text-text-secondary hover:border-primary/40",
+                  )}
+                >
+                  English + Hinglish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLanguageChange("hi-IN")}
+                  className={cn(
+                    "rounded-md border px-2 py-1 text-[11px]",
+                    language === "hi-IN"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border-strong text-text-secondary hover:border-primary/40",
+                  )}
+                >
+                  हिन्दी (देवनागरी)
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-text-muted">
+              Live session ke dauran bhi switch kar sakte ho — English ke liye pehla, shuddh Hindi ke liye doosra.
+            </p>
+          </div>
 
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-text-muted">Who's speaking right now:</span>

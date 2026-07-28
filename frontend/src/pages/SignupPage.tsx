@@ -1,21 +1,22 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { AlertCircle, Eye, EyeOff, Loader2, ShieldHalf, UserPlus } from "lucide-react";
 import type { UserRole } from "@shared/types";
+import { BackToHome } from "@/components/BackToHome";
 import { Button } from "@/components/Button";
 import { GlassPanel } from "@/components/GlassPanel";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { isFirebaseConfigured } from "@/services/env";
 import { fadeUp } from "@/theme/motion";
-import { roleOptions } from "@/constants/roles";
+import { roleOptions, signupRoleOptions } from "@/constants/roles";
 import { ROUTES } from "@/app/routes";
 
 export function SignupPage() {
   const navigate = useNavigate();
-  const { signup } = useAuth();
+  const { signup, status } = useAuth();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -27,6 +28,10 @@ export function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const selectedRoleOption = roleOptions.find((option) => option.role === role);
+
+  if (status === "authenticated") {
+    return <Navigate to={ROUTES.dashboard} replace />;
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,12 +63,13 @@ export function SignupPage() {
 
   if (!isFirebaseConfigured) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bg px-6 text-center text-text-primary">
+      <main className="app-atmosphere relative flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center text-text-primary">
+        <BackToHome className="absolute left-6 top-6" />
         <ShieldHalf className="h-8 w-8 text-primary" />
         <h1 className="text-xl font-semibold">Signup is unavailable in demo mode</h1>
         <p className="max-w-md text-sm text-text-secondary">
-          This deployment isn't connected to Firebase, so it runs on pre-seeded demo accounts. Sign in from the login
-          page instead.
+          This deployment isn&apos;t connected to Firebase, so it runs on pre-seeded demo accounts. Sign in from the
+          login page instead.
         </p>
         <Button variant="outline" onClick={() => navigate(ROUTES.login)}>
           Go to login
@@ -73,17 +79,22 @@ export function SignupPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-6 py-12">
-      <div className="grid-lines-bg absolute inset-0 opacity-30" />
-      <div className="absolute left-1/2 top-1/2 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-[140px]" />
+    <main className="app-atmosphere relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-12">
+      <div className="pointer-events-none absolute inset-0 opacity-35 radar-mesh" />
+
+      <BackToHome className="absolute left-6 top-6 z-20 sm:left-8 sm:top-8" />
 
       <motion.div initial="hidden" animate="visible" variants={fadeUp} className="relative z-10 w-full max-w-lg">
         <GlassPanel glow className="flex flex-col p-8">
-          <button type="button" onClick={() => navigate(ROUTES.landing)} className="mb-8 self-start">
+          <button
+            type="button"
+            onClick={() => navigate(ROUTES.landing)}
+            className="mb-8 self-start transition-transform duration-300 hover:scale-[1.02]"
+          >
             <Logo />
           </button>
 
-          <h1 className="text-2xl font-semibold text-text-primary">Create your console account</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary">Create your console account</h1>
           <p className="mt-1.5 text-sm text-text-secondary">
             Real Firebase-backed authentication — pick the role that matches your intelligence function.
           </p>
@@ -97,7 +108,7 @@ export function SignupPage() {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Priya Sharma"
-                className="rounded-md border border-border-strong bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary"
+                className="rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </label>
 
@@ -109,7 +120,7 @@ export function SignupPage() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="you@agency.gov.in"
-                className="rounded-md border border-border-strong bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary"
+                className="rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </label>
 
@@ -123,7 +134,7 @@ export function SignupPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="At least 6 characters"
-                  className="w-full rounded-md border border-border-strong bg-surface px-3 py-2.5 pr-10 text-sm text-text-primary outline-none transition focus:border-primary"
+                  className="w-full rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 pr-10 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   type="button"
@@ -141,14 +152,18 @@ export function SignupPage() {
               <select
                 value={role}
                 onChange={(event) => setRole(event.target.value as UserRole)}
-                className="rounded-md border border-border-strong bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary"
+                className="rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               >
-                {roleOptions.map((option) => (
+                {signupRoleOptions.map((option) => (
                   <option key={option.role} value={option.role}>
                     {option.label}
                   </option>
                 ))}
               </select>
+              <span className="text-[11px] font-normal text-text-muted">
+                Government Administrator access cannot be self-assigned — the deployment owner claims it once from
+                Settings → Admin.
+              </span>
             </label>
 
             <label className="flex flex-col gap-1.5 text-xs font-medium text-text-secondary">
@@ -158,12 +173,12 @@ export function SignupPage() {
                 value={organization}
                 onChange={(event) => setOrganization(event.target.value)}
                 placeholder={selectedRoleOption?.organizationPlaceholder}
-                className="rounded-md border border-border-strong bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary"
+                className="rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </label>
 
             {error && (
-              <div className="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+              <div className="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 {error}
               </div>

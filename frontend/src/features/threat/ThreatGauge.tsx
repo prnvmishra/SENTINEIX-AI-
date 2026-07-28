@@ -23,21 +23,32 @@ export function ThreatGauge({ score, level }: ThreatGaugeProps) {
 
   return (
     <div className="relative flex h-32 w-32 items-center justify-center">
+      <div
+        className="pointer-events-none absolute inset-3 rounded-full opacity-40 blur-xl"
+        style={{ background: `radial-gradient(circle, ${color}55 0%, transparent 70%)` }}
+      />
       <svg viewBox="0 0 128 128" className="h-full w-full -rotate-90">
-        <circle cx="64" cy="64" r={RADIUS} fill="none" stroke="var(--color-border)" strokeWidth="10" />
+        <circle
+          cx="64"
+          cy="64"
+          r={RADIUS}
+          fill="none"
+          stroke="var(--color-border-strong)"
+          strokeWidth="8"
+          opacity={0.55}
+        />
         <motion.circle
           cx="64"
           cy="64"
           r={RADIUS}
           fill="none"
           stroke={color}
-          strokeWidth="10"
+          strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={CIRCUMFERENCE}
           initial={{ strokeDashoffset: CIRCUMFERENCE }}
           animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          style={{ filter: `drop-shadow(0 0 6px ${color}90)` }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
         />
       </svg>
       <div className="absolute flex flex-col items-center">
@@ -45,11 +56,11 @@ export function ThreatGauge({ score, level }: ThreatGaugeProps) {
           key={score}
           initial={{ opacity: 0.4, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="text-3xl font-bold text-text-primary"
+          className="font-display text-3xl font-bold tracking-tight text-text-primary"
         >
           {score}
         </motion.span>
-        <span className="text-[10px] font-semibold tracking-wider" style={{ color }}>
+        <span className="mt-0.5 font-mono text-[9px] font-semibold tracking-[0.16em]" style={{ color }}>
           {levelLabel[level]}
         </span>
       </div>

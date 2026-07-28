@@ -1,5 +1,15 @@
 import bcrypt from "bcryptjs";
-import type { AuthUser, UserRole } from "@shared/types";
+import type { AuthUser, UserPermissions, UserRole } from "@shared/types";
+
+function defaultPermissionsForRole(role: UserRole): UserPermissions {
+  const isAdmin = role === "gov_admin";
+  const isCitizen = role === "citizen";
+  return {
+    canMarkCasesSolved: !isCitizen,
+    canDeleteCases: isAdmin,
+    canManageOfficers: isAdmin,
+  };
+}
 
 export interface MockUserRecord {
   id: string;
@@ -89,5 +99,6 @@ export function toPublicUser(user: MockUserRecord): AuthUser {
     role: user.role,
     organization: user.organization,
     avatarColor: user.avatarColor,
+    permissions: defaultPermissionsForRole(user.role),
   };
 }

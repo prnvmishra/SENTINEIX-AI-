@@ -240,7 +240,7 @@ A few manual steps are required in the [Firebase console](https://console.fireba
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'gov_admin')"
       }
     },
     "liveActivity": {
@@ -261,7 +261,7 @@ A few manual steps are required in the [Firebase console](https://console.fireba
 }
 ```
 
-This lets any signed-in user manage their own profile (`/users/{uid}` — name, role, organization), lets all signed-in clients read/write the shared live notification feed (`/liveActivity/notifications`) so notifications sync in real time across every open browser tab/device independent of the Socket.IO connection, lets signed-in users read/register into the Verified Officer Registry (`/officerRegistry`), and lets signed-in users read/write the **real case registry** (`/caseRegistry`) — every genuine Live Mic Session, recorded-call upload, and chat-screenshot analysis this device runs, tracked as "ongoing" then "completed" and feeding the real numbers on the Analytics and Historical Cases pages. In production, writes to `officerRegistry`/`caseRegistry` would be scoped per-organization — this open rule is a hackathon simplification.
+This lets any signed-in user manage their own profile (`/users/{uid}` — name, role, organization), **and additionally lets a Government Administrator (role `gov_admin`) edit any other user's role/permissions from the Admin panel** — this is what makes "Manage officer access" work. It also lets all signed-in clients read/write the shared live notification feed (`/liveActivity/notifications`) so notifications sync in real time across every open browser tab/device independent of the Socket.IO connection, lets signed-in users read/register into the Verified Officer Registry (`/officerRegistry`), and lets signed-in users read/write the **real case registry** (`/caseRegistry`) — every genuine Live Mic Session, recorded-call upload, and chat-screenshot analysis this device runs, tracked as "ongoing" then "completed" and feeding the real numbers on the Analytics and Historical Cases pages. In production, writes to `officerRegistry`/`caseRegistry` would be scoped per-organization — this open rule is a hackathon simplification.
 
 3. **Storage → Rules** → publish (only needed for real audio recording / chat-screenshot playback in Historical Cases — everything else works without this):
 

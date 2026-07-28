@@ -1,6 +1,8 @@
 import { v4 as uuid } from "uuid";
 import type { AiInsight, SpeakerType, ThreatLevel, TranscriptLine } from "@shared/types";
 import { env } from "../../utils/env.js";
+import { askAdvisorViaGroq, analyzeTranscriptViaGroq } from "./advisorGroqClient.js";
+import { labelSpeakersViaGroq } from "../intel/conversationTurns.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // Kept short because a slow/timed-out model now falls through to the next
@@ -50,17 +52,14 @@ insignia, backdrop, and setting look plausible for the claimed authority in an I
 of inconsistency, low-effort staging, screen artifacts, or being a pre-recorded loop? Respond with STRICT JSON only: \
 {"consistencyScore": <integer 0-100, 100 = fully consistent>, "observations": ["<short phrase>", "..."], "disclaimer": "This is a heuristic visual opinion, not an identity verification."}`;
 
-const SPEAKER_DIARIZATION_SYSTEM_PROMPT = `You are a speaker-diarization assistant inside SentinelX AI. You are given a \
-numbered list of lines transcribed from either a phone call recording or a chat conversation between exactly two \
-people: a SCAMMER (a fraudster impersonating police/CBI/customs/RBI/a bank official — demanding money, claiming an \
-arrest warrant or legal case, pressuring for secrecy, urgency, or a bank transfer/UPI payment) and a VICTIM (the \
-target of the scam — asking questions, expressing fear, confusion, or distress, pleading, agreeing to comply, or \
-reading back OTPs/account details under pressure). Use BOTH natural conversational turn-taking AND the content/tone \
-of each line (who is demanding vs. who is complying/afraid) to decide who most likely said each line. Two lines in a \
-row CAN belong to the same speaker (e.g. a scammer giving several instructions back-to-back) — do not force strict \
-alternation. Respond with STRICT JSON only, no markdown fencing, matching exactly this shape: \
-{"speakers": ["scammer"|"victim", ...]} — the array MUST have exactly the same length and order as the input lines, \
-with one entry per line, no more, no less.`;
+const SPEAKER_DIARIZATION_SYSTEM_PROMPT = `You label lines from a 2-person Indian phone scam call.
+
+SCAMMER: pitches scheme ("international payment", ITR/tax, "you will not give taxes"), commands ("you have to pay"), OTP/UPI demands, authority claims.
+VICTIM: asks questions, thinks aloud about the demand ("so I have to pay…", "I'll get only…"), confirms what they heard, refuses/angers ("fuck off").
+
+CRITICAL: "I have to pay / I'll get only" = VICTIM. "you have to pay / you will not give taxes" = SCAMMER.
+
+Respond STRICT JSON only: {"speakers":["scammer"|"victim",...]} — same length/order as input.`;
 
 interface RawAiResponse {
   score?: number;
@@ -121,11 +120,29 @@ interface OpenRouterCallResult {
   modelUsed: string;
 }
 
-async function callOpenRouterOnce(model: string, systemPrompt: string, userContent: unknown): Promise<string> {
+type OpenRouterMessage = { role: "system" | "user" | "assistant"; content: unknown };
+
+async function callOpenRouterOnce(
+  model: string,
+  systemPrompt: string,
+  userContent: unknown,
+  options?: {
+    maxTokens?: number;
+    temperature?: number;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+    timeoutMs?: number;
+  },
+): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), options?.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   try {
+    const messages: OpenRouterMessage[] = [{ role: "system", content: systemPrompt }];
+    for (const turn of options?.history ?? []) {
+      messages.push({ role: turn.role, content: turn.content });
+    }
+    messages.push({ role: "user", content: userContent });
+
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       signal: controller.signal,
@@ -137,12 +154,9 @@ async function callOpenRouterOnce(model: string, systemPrompt: string, userConte
       },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userContent },
-        ],
-        temperature: 0.2,
-        max_tokens: 400,
+        messages,
+        temperature: options?.temperature ?? 0.2,
+        max_tokens: options?.maxTokens ?? 400,
       }),
     });
 
@@ -160,6 +174,21 @@ async function callOpenRouterOnce(model: string, systemPrompt: string, userConte
   }
 }
 
+// OpenRouter's free tier resets on a rolling daily window (not per-minute),
+// so once every model in the fallback chain has hit "free-models-per-day" in
+// the SAME request, retrying immediately is guaranteed to fail identically
+// (confirmed live — 5 sequential 429s per call) while adding real latency to
+// every single transcript line for the rest of the day. This short-circuits
+// for a cooldown window instead of hammering an exhausted quota, and the UI
+// is told honestly (`isAiDailyQuotaExhausted`) instead of showing a
+// perpetual "Standby" that implies the AI just hasn't run yet.
+const DAILY_QUOTA_COOLDOWN_MS = 10 * 60 * 1000;
+let quotaExhaustedUntilMs = 0;
+
+export function isAiDailyQuotaExhausted(): boolean {
+  return Date.now() < quotaExhaustedUntilMs;
+}
+
 /**
  * Tries the primary model, then falls back through FREE_MODEL_FALLBACK_CHAIN
  * (deduped, skipping the primary if it's already in the chain) so a single
@@ -171,23 +200,136 @@ async function callOpenRouterWithFallback(
   primaryModel: string,
   systemPrompt: string,
   userContent: unknown,
+  options?: {
+    maxTokens?: number;
+    temperature?: number;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+    timeoutMs?: number;
+  },
 ): Promise<OpenRouterCallResult | null> {
-  const candidates = [primaryModel, ...FREE_MODEL_FALLBACK_CHAIN.filter((m) => m !== primaryModel)];
+  if (isAiDailyQuotaExhausted()) return null;
+
+  // Cap the cascade — trying 5 free models on every failure burns the
+  // shared daily quota 5× faster and was the main reason the UI hit
+  // "quota reached" mid-demo. Primary + 1 backup is enough resilience.
+  const backups = FREE_MODEL_FALLBACK_CHAIN.filter((m) => m !== primaryModel).slice(0, 1);
+  const candidates = [primaryModel, ...backups];
 
   for (const model of candidates) {
     try {
-      const content = await callOpenRouterOnce(model, systemPrompt, userContent);
+      const content = await callOpenRouterOnce(model, systemPrompt, userContent, options);
       return { content, modelUsed: model };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.warn(
-        `[ai-analyst] ${model} failed (${error instanceof Error ? error.message : error}) — ${
-          model === candidates[candidates.length - 1] ? "no more fallbacks" : "trying next free model"
+        `[ai-analyst] ${model} failed (${message}) — ${
+          model === candidates[candidates.length - 1] ? "no more OpenRouter fallbacks" : "trying next free model"
         }.`,
       );
+      // Daily free-tier hit: stop immediately so we don't spend the rest of
+      // the day's quota hammering sibling :free models.
+      if (message.includes("free-models-per-day") || message.includes("rate_limit")) {
+        if (message.includes("free-models-per-day")) {
+          quotaExhaustedUntilMs = Date.now() + DAILY_QUOTA_COOLDOWN_MS;
+          console.warn(
+            `[ai-analyst] OpenRouter daily free quota hit — pausing OpenRouter for ${DAILY_QUOTA_COOLDOWN_MS / 60_000} min. Groq / rule engine continue.`,
+          );
+        }
+        break;
+      }
     }
   }
 
   return null;
+}
+
+const ADVISOR_SYSTEM_PROMPT = `You are the SentinelX AI investigation advisor for Indian cyber-crime officers and \
+citizens facing Digital Arrest / UPI / sextortion scams. Answer in the SAME language the user writes in \
+(Hindi, Hinglish, or English). Be concrete and actionable — tell them what to do NEXT, in short numbered steps. \
+Never invent case facts that are not in the provided context. Never claim you can arrest anyone or access CDR/bank \
+records yourself — those require police / telecom / bank processes. Keep replies under 180 words.`;
+
+export interface AdvisorCaseContext {
+  threatScore: number;
+  threatLevel: string;
+  city?: string;
+  state?: string;
+  impersonatedAuthority?: string;
+  decisionHeadline?: string;
+  decisionActions?: string[];
+  transcriptLines?: Array<{ speaker: string; text: string }>;
+  entities?: string[];
+  latestAiSummary?: string;
+}
+
+export interface AdvisorChatResult {
+  reply: string;
+  model: string;
+  fallback: boolean;
+}
+
+/**
+ * Interactive "what should I do next?" advisor chat grounded in the live
+ * case / threat context. Tries OpenRouter → Groq → smart offline advisor.
+ */
+export async function askAdvisorChat(
+  message: string,
+  context: AdvisorCaseContext,
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
+): Promise<AdvisorChatResult> {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return { reply: "Ask me what to do next — e.g. “Ab aage kya karun?”", model: "local", fallback: true };
+  }
+
+  const transcriptText = (context.transcriptLines ?? [])
+    .slice(-20)
+    .map((line) => `[${line.speaker.toUpperCase()}] ${line.text}`)
+    .join("\n");
+
+  const userContent = [
+    "Live case context (use only these facts):",
+    `- Threat score: ${context.threatScore}/100 (${context.threatLevel})`,
+    `- Location: ${context.city ?? "unknown"}, ${context.state ?? "unknown"}`,
+    `- Claimed authority: ${context.impersonatedAuthority ?? "unknown"}`,
+    context.decisionHeadline ? `- Decision headline: ${context.decisionHeadline}` : null,
+    context.decisionActions?.length ? `- Recommended actions: ${context.decisionActions.join("; ")}` : null,
+    context.entities?.length ? `- Entities mentioned: ${context.entities.join(", ")}` : null,
+    context.latestAiSummary ? `- Latest AI assessment: ${context.latestAiSummary}` : null,
+    "",
+    "Recent transcript:",
+    transcriptText || "(none yet)",
+    "",
+    `Officer/citizen question: ${trimmed}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (isAiAnalystEnabled() && !isAiDailyQuotaExhausted()) {
+    const result = await callOpenRouterWithFallback(env.openRouterModel, ADVISOR_SYSTEM_PROMPT, userContent, {
+      maxTokens: 500,
+      temperature: 0.35,
+      history: history.slice(-8),
+      timeoutMs: 20_000,
+    });
+
+    if (result) {
+      return { reply: result.content.trim(), model: result.modelUsed, fallback: false };
+    }
+  }
+
+  const groqResult = await askAdvisorViaGroq(ADVISOR_SYSTEM_PROMPT, userContent, history);
+  if (groqResult) {
+    return { reply: groqResult.reply, model: groqResult.model, fallback: false };
+  }
+
+  // Honest failure — never invent canned scam advice when models are down.
+  return {
+    reply:
+      "AI advisor is temporarily unavailable (API quota or network). No automatic answer was generated — please retry in a few minutes.",
+    model: "none",
+    fallback: true,
+  };
 }
 
 /**
@@ -204,16 +346,34 @@ export async function analyzeTranscriptWithAI(
   engineScore: number,
   engineLevel: ThreatLevel,
 ): Promise<AiInsight | null> {
-  if (!isAiAnalystEnabled()) return null;
+  const userPrompt = buildUserPrompt(context, transcriptSoFar);
 
-  const result = await callOpenRouterWithFallback(
-    env.openRouterModel,
-    SYSTEM_PROMPT,
-    buildUserPrompt(context, transcriptSoFar),
-  );
-  if (!result) return null;
+  // OpenRouter first (when enabled and not quota-cooled), then Groq so the
+  // live threat gauge can still climb when OpenRouter free tier is exhausted.
+  if (isAiAnalystEnabled()) {
+    const result = await callOpenRouterWithFallback(env.openRouterModel, SYSTEM_PROMPT, userPrompt);
+    if (result) {
+      const insight = parseThreatInsight(result.content, caseId, engineScore, engineLevel, result.modelUsed);
+      if (insight) return insight;
+    }
+  }
 
-  const parsed = parseJsonResponse<RawAiResponse>(result.content);
+  const groqContent = await analyzeTranscriptViaGroq(SYSTEM_PROMPT, userPrompt);
+  if (groqContent) {
+    return parseThreatInsight(groqContent.content, caseId, engineScore, engineLevel, groqContent.model);
+  }
+
+  return null;
+}
+
+function parseThreatInsight(
+  content: string,
+  caseId: string,
+  engineScore: number,
+  engineLevel: ThreatLevel,
+  modelUsed: string,
+): AiInsight | null {
+  const parsed = parseJsonResponse<RawAiResponse>(content);
   if (!parsed) return null;
 
   const level = coerceLevel(parsed.level, engineLevel);
@@ -230,43 +390,69 @@ export async function analyzeTranscriptWithAI(
     summary: parsed.summary?.trim() || "The AI analyst did not return a summary for this update.",
     keyIndicators: Array.isArray(parsed.keyIndicators) ? parsed.keyIndicators.slice(0, 5) : [],
     agreesWithEngine: level === engineLevel,
-    model: result.modelUsed,
+    model: modelUsed,
     generatedAt: new Date().toISOString(),
   };
 }
 
 /**
- * A recorded call/chat upload has no per-speaker audio channel, so we can't
- * tell scammer and victim apart mechanically — the citizen previously had to
- * pick ONE fixed speaker label applied to every single line, which meant a
- * victim's own scared replies got mislabeled "scammer voice" (and vice
- * versa). This asks the real LLM to read the whole transcript at once and
- * classify each line individually from conversational turn-taking + content
- * (who's demanding money vs. who's afraid/complying) — a genuine per-line
- * diarization instead of one blanket label. `defaultSpeaker` (the citizen's
- * manual pick) is kept only as the safe fallback if the AI is unavailable,
- * disabled, or returns something malformed — the feature never breaks.
+ * Per-line victim/scammer labels from a real LLM only (OpenRouter → Groq).
+ * Never invents labels via keyword heuristics — if both models fail, lines
+ * are marked `unknown` so the UI stays honest.
  */
-export async function inferLineSpeakers(lines: string[], defaultSpeaker: SpeakerType): Promise<SpeakerType[]> {
-  const fallback = lines.map(() => defaultSpeaker);
-  if (!isAiAnalystEnabled() || lines.length === 0) return fallback;
+export async function inferLineSpeakers(lines: string[], _defaultSpeaker: SpeakerType): Promise<SpeakerType[]> {
+  if (lines.length === 0) return [];
 
   const numbered = lines.map((text, index) => `${index + 1}. ${text}`).join("\n");
-  const result = await callOpenRouterWithFallback(
-    env.openRouterModel,
-    SPEAKER_DIARIZATION_SYSTEM_PROMPT,
-    `Transcript lines (${lines.length} total):\n${numbered}`,
-  );
-  if (!result) return fallback;
+  const userPrompt = `Transcript lines (${lines.length} total):\n${numbered}`;
 
-  const parsed = parseJsonResponse<RawSpeakerDiarizationResponse>(result.content);
-  if (!parsed || !Array.isArray(parsed.speakers) || parsed.speakers.length !== lines.length) {
-    console.warn("[ai-analyst] speaker diarization returned an unusable shape — falling back to the manual pick.");
-    return fallback;
+  // Prefer Groq first when OpenRouter free quota is exhausted (common during demos).
+  if (!isAiAnalystEnabled() || isAiDailyQuotaExhausted()) {
+    const groqFirst = await labelSpeakersViaGroq(lines);
+    if (groqFirst) return groqFirst;
+  } else {
+    const result = await callOpenRouterWithFallback(
+      env.openRouterModel,
+      SPEAKER_DIARIZATION_SYSTEM_PROMPT,
+      userPrompt,
+    );
+    const mapped = mapSpeakerResponse(result?.content, lines.length);
+    if (mapped) return mapped;
+
+    const groq = await labelSpeakersViaGroq(lines);
+    if (groq) return groq;
+
+    const groqLegacy = await analyzeTranscriptViaGroq(SPEAKER_DIARIZATION_SYSTEM_PROMPT, userPrompt, {
+      maxTokens: 4000,
+      temperature: 0,
+      json: true,
+    });
+    const groqMapped = mapSpeakerResponse(groqLegacy?.content, lines.length);
+    if (groqMapped) {
+      console.info(`[ai-analyst] speaker diarization via ${groqLegacy?.model}`);
+      return groqMapped;
+    }
   }
 
+  console.warn("[ai-analyst] speaker diarization unavailable — labeling lines as unknown (no fake guess).");
+  return lines.map(() => "unknown" as const);
+}
+
+function mapSpeakerResponse(content: string | undefined, expectedLength: number): SpeakerType[] | null {
+  if (!content) return null;
+  const parsed = parseJsonResponse<RawSpeakerDiarizationResponse>(content);
+  if (!parsed || !Array.isArray(parsed.speakers)) {
+    console.warn("[ai-analyst] speaker JSON parse failed:", content.slice(0, 160));
+    return null;
+  }
+  if (parsed.speakers.length !== expectedLength) {
+    console.warn(
+      `[ai-analyst] speaker length mismatch: got ${parsed.speakers.length}, need ${expectedLength}`,
+    );
+    return null;
+  }
   return parsed.speakers.map((value) =>
-    value === "scammer" || value === "victim" ? (value as SpeakerType) : defaultSpeaker,
+    value === "scammer" || value === "victim" ? (value as SpeakerType) : ("unknown" as const),
   );
 }
 

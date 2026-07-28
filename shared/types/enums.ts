@@ -8,7 +8,7 @@ export type UserRole =
 
 export type ThreatLevel = "low" | "elevated" | "high" | "critical";
 
-export type SpeakerType = "scammer" | "victim" | "system";
+export type SpeakerType = "scammer" | "victim" | "system" | "unknown";
 
 export type ThreatSignalCategory =
   | "authority_impersonation"

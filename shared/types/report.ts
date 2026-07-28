@@ -15,6 +15,8 @@ export interface InvestigationReport {
   threatLevel: ThreatLevel;
   timeline: TimelineEvent[];
   evidence: string[];
+  /** Original chat screenshot (data URL or download URL) embedded in the PDF when present */
+  evidenceImageUrl?: string;
   indicators: ThreatReason[];
   recommendations: string[];
   disclaimer: string;

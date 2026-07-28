@@ -9,6 +9,7 @@ const speakerConfig = {
   scammer: { label: "SCAMMER", icon: ShieldAlert, textClass: "text-danger", badgeClass: "bg-danger/10 text-danger border-danger/30" },
   victim: { label: "VICTIM", icon: User, textClass: "text-text-primary", badgeClass: "bg-surface-raised text-text-secondary border-border-strong" },
   system: { label: "SYSTEM", icon: Bot, textClass: "text-text-muted italic", badgeClass: "bg-primary/10 text-primary border-primary/30" },
+  unknown: { label: "UNKNOWN", icon: User, textClass: "text-text-secondary", badgeClass: "bg-warning/10 text-warning border-warning/30" },
 } as const;
 
 export function TranscriptLineItem({ line }: { line: TranscriptLine }) {

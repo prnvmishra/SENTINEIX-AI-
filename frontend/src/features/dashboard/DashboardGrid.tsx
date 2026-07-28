@@ -17,17 +17,19 @@ export function DashboardGrid({ transcript, threat, map, graph, bottom }: Dashbo
       initial="hidden"
       animate="visible"
       variants={staggerContainer}
-      className="grid h-[calc(100vh-3.5rem)] grid-rows-[minmax(0,1fr)_minmax(220px,240px)] gap-2 overflow-y-auto p-2 lg:overflow-hidden"
+      className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden p-2.5"
     >
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-h-0 flex-[1.15] grid-cols-1 gap-2.5 overflow-hidden sm:grid-cols-2 xl:grid-cols-4">
         {[transcript, threat, map, graph].map((panel, index) => (
-          <motion.div key={index} variants={panelMount} className="min-h-[360px] sm:col-span-1 xl:min-h-0">
+          <motion.div key={index} variants={panelMount} className="min-h-0 h-full overflow-hidden">
             <ErrorBoundary fallbackTitle="This intelligence module failed to render">{panel}</ErrorBoundary>
           </motion.div>
         ))}
       </div>
-      <motion.div variants={panelMount} className="min-h-[220px]">
-        <ErrorBoundary fallbackTitle="Investigation console failed to render">{bottom}</ErrorBoundary>
+      <motion.div variants={panelMount} className="flex min-h-[280px] flex-1 flex-col overflow-hidden">
+        <ErrorBoundary fallbackTitle="Investigation console failed to render">
+          <div className="h-full min-h-0">{bottom}</div>
+        </ErrorBoundary>
       </motion.div>
     </motion.div>
   );

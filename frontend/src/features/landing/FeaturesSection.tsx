@@ -25,11 +25,11 @@ export function FeaturesSection() {
             const Icon = feature.icon;
             return (
               <motion.div key={feature.title} variants={fadeUp}>
-                <GlassPanel className="group h-full transition-colors hover:border-primary/40">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-strong bg-surface-raised transition-colors group-hover:border-primary/40 group-hover:bg-primary/10">
+                <GlassPanel className="group h-full transition-all duration-300 hover:border-primary/35 hover:shadow-[0_0_36px_-18px_color-mix(in_srgb,var(--color-primary)_45%,transparent)]">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border-strong bg-surface-raised transition-colors group-hover:border-primary/40 group-hover:bg-primary/10">
                     <Icon className="h-5 w-5 text-primary" />
                   </div>
-                  <p className="mt-4 text-sm font-semibold text-text-primary">{feature.title}</p>
+                  <p className="mt-4 text-sm font-bold tracking-tight text-text-primary">{feature.title}</p>
                   <p className="mt-1.5 text-xs leading-relaxed text-text-secondary">{feature.description}</p>
                 </GlassPanel>
               </motion.div>

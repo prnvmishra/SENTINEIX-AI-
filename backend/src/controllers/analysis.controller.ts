@@ -1,20 +1,103 @@
 import type { NextFunction, Request, Response } from "express";
 import { analyzeRecordedCall, analyzeTextConversation } from "../services/liveSessionEngine.js";
-import { isGroqTranscriptionEnabled } from "../services/intel/groqTranscriptionClient.js";
+import {
+  isGroqTranscriptionEnabled,
+  type TranscriptionLanguage,
+} from "../services/intel/groqTranscriptionClient.js";
+import {
+  askAdvisorChat,
+  isAiAnalystEnabled,
+  isAiDailyQuotaExhausted,
+  type AdvisorCaseContext,
+} from "../services/ai/openRouterClient.js";
 import { ApiError } from "../middleware/error.middleware.js";
+
+/**
+ * Lets the dashboard tell "AI hasn't spoken yet because the case just
+ * started" apart from "AI can't speak right now because OpenRouter's free
+ * daily quota is exhausted" — the two look identical from the frontend's
+ * perspective otherwise (no ai:insight has arrived) and showing a perpetual
+ * "Standby" for the latter is actively misleading about why scores/speaker
+ * labels are falling back to the rule engine/heuristic.
+ */
+export function getAiStatus(_req: Request, res: Response): void {
+  res.json({ enabled: isAiAnalystEnabled(), quotaExhausted: isAiAnalystEnabled() && isAiDailyQuotaExhausted() });
+}
 
 interface AnalyzeRecordingBody {
   audioBase64?: string;
   mimeType?: string;
   victimAlias?: string;
   speaker?: "scammer" | "victim";
-  language?: "en" | "hi";
+  language?: TranscriptionLanguage;
 }
 
 interface AnalyzeTextBody {
   lines?: string[];
   victimAlias?: string;
   speaker?: "scammer" | "victim";
+}
+
+interface AdvisorChatBody {
+  message?: string;
+  history?: Array<{ role?: string; content?: string }>;
+  context?: Partial<AdvisorCaseContext>;
+}
+
+/**
+ * Interactive advisor chat — officer/citizen asks "ab aage kya karun?" and
+ * the LLM (or rule-engine fallback) answers from the live threat context.
+ */
+export async function advisorChat(
+  req: Request<Record<string, never>, unknown, AdvisorChatBody>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const message = typeof req.body.message === "string" ? req.body.message.trim() : "";
+    if (!message) throw new ApiError(400, "message is required.");
+
+    const history = Array.isArray(req.body.history)
+      ? req.body.history
+          .filter(
+            (turn): turn is { role: "user" | "assistant"; content: string } =>
+              (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string" && turn.content.trim().length > 0,
+          )
+          .map((turn) => ({ role: turn.role, content: turn.content.trim() }))
+          .slice(-8)
+      : [];
+
+    const raw = req.body.context ?? {};
+    const context: AdvisorCaseContext = {
+      threatScore: typeof raw.threatScore === "number" ? raw.threatScore : 0,
+      threatLevel: typeof raw.threatLevel === "string" ? raw.threatLevel : "low",
+      city: typeof raw.city === "string" ? raw.city : undefined,
+      state: typeof raw.state === "string" ? raw.state : undefined,
+      impersonatedAuthority: typeof raw.impersonatedAuthority === "string" ? raw.impersonatedAuthority : undefined,
+      decisionHeadline: typeof raw.decisionHeadline === "string" ? raw.decisionHeadline : undefined,
+      decisionActions: Array.isArray(raw.decisionActions)
+        ? raw.decisionActions.filter((a): a is string => typeof a === "string")
+        : undefined,
+      transcriptLines: Array.isArray(raw.transcriptLines)
+        ? raw.transcriptLines
+            .filter(
+              (line): line is { speaker: string; text: string } =>
+                typeof line === "object" &&
+                line !== null &&
+                typeof (line as { speaker?: unknown }).speaker === "string" &&
+                typeof (line as { text?: unknown }).text === "string",
+            )
+            .slice(-20)
+        : undefined,
+      entities: Array.isArray(raw.entities) ? raw.entities.filter((e): e is string => typeof e === "string") : undefined,
+      latestAiSummary: typeof raw.latestAiSummary === "string" ? raw.latestAiSummary : undefined,
+    };
+
+    const result = await askAdvisorChat(message, context, history);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
 }
 
 /**
@@ -45,13 +128,16 @@ export async function analyzeRecording(
       );
     }
 
-    const { audioBase64, mimeType, victimAlias, speaker, language } = req.body;
+    const { audioBase64, mimeType, victimAlias, language } = req.body;
     if (!audioBase64 || typeof audioBase64 !== "string") {
       throw new ApiError(400, "audioBase64 is required.");
     }
     if (!mimeType || typeof mimeType !== "string") {
       throw new ApiError(400, "mimeType is required.");
     }
+
+    const transcriptionLanguage: TranscriptionLanguage =
+      language === "en" || language === "hi" || language === "auto" ? language : "auto";
 
     const base64Data = audioBase64.includes(",") ? audioBase64.split(",")[1]! : audioBase64;
     const buffer = Buffer.from(base64Data, "base64");
@@ -66,8 +152,8 @@ export async function analyzeRecording(
       victimAlias?.trim() || "Citizen (recorded call)",
       buffer,
       mimeType,
-      speaker === "victim" ? "victim" : "scammer",
-      language,
+      "unknown",
+      transcriptionLanguage,
     );
 
     if ("error" in result) {
@@ -93,7 +179,7 @@ export async function analyzeChatScreenshot(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { lines, victimAlias, speaker } = req.body;
+    const { lines, victimAlias } = req.body;
     if (!Array.isArray(lines) || lines.length === 0 || !lines.every((l) => typeof l === "string")) {
       throw new ApiError(400, "lines (a non-empty array of extracted text strings) is required.");
     }
@@ -101,7 +187,7 @@ export async function analyzeChatScreenshot(
     const result = await analyzeTextConversation(
       victimAlias?.trim() || "Citizen (chat screenshot)",
       lines,
-      speaker === "victim" ? "victim" : "scammer",
+      "unknown",
     );
 
     if ("error" in result) {

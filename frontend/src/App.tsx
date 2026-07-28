@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ROUTES } from "@/app/routes";
 import { RouteTransition } from "@/app/RouteTransition";
+import { ScrollToTop } from "@/app/ScrollToTop";
 import { AppLoadingScreen } from "@/app/AppLoadingScreen";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -14,6 +15,8 @@ const SignupPage = lazy(() => import("@/pages/SignupPage").then((m) => ({ defaul
 const DashboardPage = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const AdminPage = lazy(() => import("@/pages/AdminPage").then((m) => ({ default: m.AdminPage })));
+const CasesPage = lazy(() => import("@/pages/CasesPage").then((m) => ({ default: m.CasesPage })));
 const OfficerRegistryPage = lazy(() =>
   import("@/pages/OfficerRegistryPage").then((m) => ({ default: m.OfficerRegistryPage })),
 );
@@ -24,6 +27,7 @@ function App() {
 
   return (
     <ErrorBoundary fallbackTitle="SentinelX AI failed to load">
+      <ScrollToTop />
       <ToastCenter />
       <Suspense fallback={<AppLoadingScreen />}>
         <AnimatePresence mode="wait" initial={false}>
@@ -57,6 +61,26 @@ function App() {
                 <ProtectedRoute>
                   <RouteTransition>
                     <SettingsPage />
+                  </RouteTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path={ROUTES.admin}
+              element={
+                <ProtectedRoute>
+                  <RouteTransition>
+                    <AdminPage />
+                  </RouteTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path={ROUTES.cases}
+              element={
+                <ProtectedRoute>
+                  <RouteTransition>
+                    <CasesPage />
                   </RouteTransition>
                 </ProtectedRoute>
               }

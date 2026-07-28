@@ -10,7 +10,6 @@ import type {
   DeepfakeCheckResult,
   EntityIntelResult,
   GraphUpdate,
-  MapHotspot,
   MapPing,
   SpeakerType,
   SystemLogEntry,
@@ -19,9 +18,12 @@ import type {
   TranscriptLine,
 } from "@shared/types";
 import { useSocket } from "@/hooks/useSocket";
+import { useAuth } from "@/hooks/useAuth";
 import { LiveCaseContext, initialLiveCaseState, isLiveMicSession } from "@/context/liveCaseContextInstance";
 import type { LiveCaseState } from "@/context/liveCaseContextInstance";
 import { registerCase, updateRegisteredCase } from "@/services/caseRegistry";
+import { buildCaseDetailFromLiveState } from "@/utils/buildCaseDetailFromLiveState";
+import { resolveCaseDetailDurationMs } from "@/utils/caseDuration";
 
 type LiveCaseAction =
   | { type: "case:start"; payload: CaseStartPayload }
@@ -69,7 +71,14 @@ function reducer(state: LiveCaseState, action: LiveCaseAction): LiveCaseState {
     case "notification:new":
       return { ...state, liveNotifications: [action.payload, ...state.liveNotifications].slice(0, 50) };
     case "ai:insight":
-      return { ...state, aiInsights: [...state.aiInsights, action.payload].slice(-10) };
+      return {
+        ...state,
+        aiInsights: [...state.aiInsights, action.payload].slice(-10),
+        // Keep the main gauge in sync with AI raises even if threat:update is delayed.
+        threatScore: Math.max(state.threatScore, action.payload.score),
+        threatLevel:
+          action.payload.score > state.threatScore ? action.payload.level : state.threatLevel,
+      };
     case "intel:entityResult":
       return { ...state, entityIntel: [...state.entityIntel, action.payload].slice(-20) };
     case "intel:deepfakeResult":
@@ -79,7 +88,7 @@ function reducer(state: LiveCaseState, action: LiveCaseAction): LiveCaseState {
         ...state,
         isRunning: false,
         activeCase: state.activeCase
-          ? { ...state.activeCase, status: "resolved", finalScore: action.payload.finalScore }
+          ? { ...state.activeCase, status: "live", finalScore: action.payload.finalScore }
           : null,
       };
     default:
@@ -87,106 +96,170 @@ function reducer(state: LiveCaseState, action: LiveCaseAction): LiveCaseState {
   }
 }
 
-function severityForLevel(level: LiveCaseState["threatLevel"]): MapHotspot["severity"] {
-  if (level === "critical" || level === "high") return "high";
-  if (level === "elevated") return "medium";
-  return "low";
-}
-
-/**
- * Assembles a full CaseDetail snapshot from the current live-case state —
- * used to write/refresh the real case registry (Firebase). Only ever called
- * for genuine sessions (live mic, recorded upload, chat screenshot), never
- * for the scripted demo, so Analytics/Historical Cases stay real.
- */
 function buildCaseDetailFromState(state: LiveCaseState): CaseDetail | null {
-  if (!state.activeCase) return null;
-  const lastPing = state.mapPings[state.mapPings.length - 1];
-
-  const hotspot: MapHotspot = lastPing
-    ? {
-        id: lastPing.hotspotId,
-        city: lastPing.city,
-        state: lastPing.state,
-        lat: lastPing.lat,
-        lng: lastPing.lng,
-        incidentCount: 1,
-        severity: severityForLevel(state.threatLevel),
-      }
-    : {
-        id: `hotspot-${state.activeCase.id}`,
-        city: state.activeCase.city,
-        state: state.activeCase.state,
-        lat: 20.5937,
-        lng: 78.9629,
-        incidentCount: 1,
-        severity: severityForLevel(state.threatLevel),
-      };
-
-  return {
-    ...state.activeCase,
-    threatLevel: state.threatLevel,
-    finalScore: state.threatScore,
-    transcript: state.transcript,
-    reasons: state.threatReasons,
-    nodes: state.graph?.nodes ?? [],
-    edges: state.graph?.edges ?? [],
-    timeline: state.timeline,
-    hotspot,
-  };
+  return buildCaseDetailFromLiveState(state);
 }
 
 export function LiveCaseProvider({ children }: { children: ReactNode }) {
   const { socket } = useSocket();
+  const { user } = useAuth();
   const [state, dispatch] = useReducer(reducer, initialLiveCaseState);
   const wasRunningRef = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  // The citizen gets an explicit choice, made BEFORE starting a session,
-  // over whether it gets saved to the real case registry (Firebase) and
-  // shown in Analytics/Historical Cases. Kept as a ref (read at the moment a
-  // session starts) + mirrored state (for the checkbox UI) so a mid-session
-  // toggle flip can never desync "started ongoing" from "ended completed".
-  const [caseRegistrationEnabled, setCaseRegistrationEnabledState] = useState(true);
-  const registrationEnabledRef = useRef(true);
-  const registeredCaseIdRef = useRef<string | null>(null);
-  const [lastCompletedRegisteredCaseId, setLastCompletedRegisteredCaseId] = useState<string | null>(null);
-  const setCaseRegistrationEnabled = useCallback((enabled: boolean) => {
-    registrationEnabledRef.current = enabled;
-    setCaseRegistrationEnabledState(enabled);
-  }, []);
+  const [pendingRegistration, setPendingRegistration] = useState<CaseDetail | null>(null);
+  const pendingRegistrationRef = useRef<CaseDetail | null>(null);
+  pendingRegistrationRef.current = pendingRegistration;
+  const [lastRegisteredCaseId, setLastRegisteredCaseId] = useState<string | null>(null);
+  const lastRegisteredCaseIdRef = useRef<string | null>(null);
+  const [caseRegistryError, setCaseRegistryError] = useState<string | null>(null);
+  const pendingEvidenceRef = useRef<
+    Record<string, { recordingUrl?: string; evidenceImageUrl?: string; durationMs?: number }>
+  >({});
 
-  // Real-case lifecycle -> Firebase registry: register as "ongoing" the
-  // instant a genuine session starts (only if the citizen opted in), and
-  // refresh it as "completed" (with the final transcript/score/graph/
-  // timeline) the instant it ends. The scripted demo never touches this —
-  // isLiveMicSession() gates on the `live-` case-id prefix that only
-  // live/recorded/screenshot sessions get.
+  // Analysis finished → hold a local draft ONLY. Never auto-write to Firebase.
+  // The citizen/officer must click "Register this case" (sometimes there is no
+  // threat and the analysis is just a check).
   useEffect(() => {
     const wasRunning = wasRunningRef.current;
     wasRunningRef.current = state.isRunning;
 
     if (!state.activeCase || !isLiveMicSession(state.activeCase)) return;
 
-    if (state.isRunning && !wasRunning) {
-      if (registrationEnabledRef.current) {
-        const detail = buildCaseDetailFromState(state);
-        if (detail) {
-          registerCase(detail);
-          registeredCaseIdRef.current = detail.id;
-        }
-      } else {
-        registeredCaseIdRef.current = null;
-      }
-    } else if (!state.isRunning && wasRunning) {
-      if (registeredCaseIdRef.current === state.activeCase.id) {
-        const detail = buildCaseDetailFromState(state);
-        if (detail) {
-          updateRegisteredCase(detail.id, detail);
-          setLastCompletedRegisteredCaseId(detail.id);
-        }
+    if (!state.isRunning && wasRunning) {
+      const detail = buildCaseDetailFromState(state);
+      if (detail) {
+        const earlyEvidence = pendingEvidenceRef.current[detail.id];
+        if (earlyEvidence) delete pendingEvidenceRef.current[detail.id];
+        setPendingRegistration({
+          ...detail,
+          status: "live",
+          ...(earlyEvidence?.recordingUrl ? { recordingUrl: earlyEvidence.recordingUrl } : {}),
+          ...(earlyEvidence?.evidenceImageUrl ? { evidenceImageUrl: earlyEvidence.evidenceImageUrl } : {}),
+          ...(earlyEvidence?.durationMs && earlyEvidence.durationMs > 0
+            ? { durationMs: earlyEvidence.durationMs }
+            : {}),
+        });
+        setCaseRegistryError(null);
+        setLastRegisteredCaseId(null);
       }
     }
   }, [state]);
+
+  // Late AI raises (after session end) must update the register panel score —
+  // otherwise the gauge can show 98 while "Register" still shows 71.
+  useEffect(() => {
+    if (!pendingRegistration) return;
+    if (state.threatScore <= pendingRegistration.finalScore) return;
+
+    setPendingRegistration((previous) => {
+      if (!previous || state.threatScore <= previous.finalScore) return previous;
+      return {
+        ...previous,
+        finalScore: state.threatScore,
+        threatLevel: state.threatLevel,
+        reasons: state.threatReasons.length > 0 ? state.threatReasons : previous.reasons,
+        timeline: state.timeline.length > previous.timeline.length ? state.timeline : previous.timeline,
+      };
+    });
+  }, [
+    state.threatScore,
+    state.threatLevel,
+    state.threatReasons,
+    state.timeline,
+    pendingRegistration,
+  ]);
+
+  const attachPendingEvidence = useCallback(
+    (
+      evidence: { recordingUrl?: string; evidenceImageUrl?: string; durationMs?: number },
+      forCaseId?: string,
+    ) => {
+      const caseId =
+        forCaseId ?? pendingRegistrationRef.current?.id ?? stateRef.current.activeCase?.id;
+      const registeredId = lastRegisteredCaseIdRef.current;
+
+      if (caseId) {
+        pendingEvidenceRef.current[caseId] = {
+          ...pendingEvidenceRef.current[caseId],
+          ...evidence,
+        };
+      }
+
+      setPendingRegistration((previous) => {
+        if (!previous) return previous;
+        if (forCaseId && previous.id !== forCaseId) return previous;
+        return {
+          ...previous,
+          status: "live",
+          ...(evidence.recordingUrl ? { recordingUrl: evidence.recordingUrl } : {}),
+          ...(evidence.evidenceImageUrl ? { evidenceImageUrl: evidence.evidenceImageUrl } : {}),
+          ...(evidence.durationMs && evidence.durationMs > 0 ? { durationMs: evidence.durationMs } : {}),
+        };
+      });
+
+      // Evidence upload can finish after the user already registered — patch Firebase.
+      if (caseId && registeredId === caseId) {
+        void updateRegisteredCase(caseId, evidence);
+      }
+    },
+    [],
+  );
+
+  const registerPendingCase = useCallback(async (): Promise<string | null> => {
+    const draft = pendingRegistration;
+    if (!draft) return "Nothing to register — run an analysis first.";
+    if (!user) return "You must be signed in to register a case.";
+
+    const live = stateRef.current;
+    const finalScore = Math.max(draft.finalScore, live.threatScore);
+    const threatLevel = live.threatScore >= draft.finalScore ? live.threatLevel : draft.threatLevel;
+
+    // blob: URLs die on refresh — never write them into Firebase.
+    const recordingUrl =
+      draft.recordingUrl && !draft.recordingUrl.startsWith("blob:") ? draft.recordingUrl : undefined;
+    const evidenceImageUrl =
+      draft.evidenceImageUrl && !draft.evidenceImageUrl.startsWith("blob:")
+        ? draft.evidenceImageUrl
+        : undefined;
+
+    if (draft.recordingUrl?.startsWith("blob:") && !recordingUrl) {
+      setCaseRegistryError(
+        "Voice is only a temporary browser preview (blob URL). Wait for the green Voice evidence badge (Storage/inline save), then register again.",
+      );
+      return "Voice evidence not persisted yet.";
+    }
+
+    setCaseRegistryError(null);
+    const durationMs = resolveCaseDetailDurationMs(draft);
+    const error = await registerCase({
+      ...draft,
+      recordingUrl,
+      evidenceImageUrl,
+      finalScore,
+      threatLevel,
+      reasons: live.threatReasons.length > 0 ? live.threatReasons : draft.reasons,
+      durationMs,
+      status: "live",
+      resolution: undefined,
+      registeredByUid: user.id,
+      registeredByName: user.name,
+    });
+    if (error) {
+      setCaseRegistryError(error);
+      return error;
+    }
+    setLastRegisteredCaseId(draft.id);
+    lastRegisteredCaseIdRef.current = draft.id;
+    setPendingRegistration(null);
+    return null;
+  }, [pendingRegistration, user]);
+
+  const discardPendingRegistration = useCallback(() => {
+    setPendingRegistration(null);
+    setCaseRegistryError(null);
+  }, []);
 
   useEffect(() => {
     if (!socket) return;
@@ -247,7 +320,8 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
     [socket],
   );
   const submitLiveLocation = useCallback(
-    (lat: number, lng: number) => socket?.emit("live:location", { lat, lng }),
+    (lat: number, lng: number, accuracyMeters?: number) =>
+      socket?.emit("live:location", { lat, lng, accuracyMeters }),
     [socket],
   );
   const submitLiveMediaCheck = useCallback(
@@ -269,9 +343,12 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
       submitLiveLocation,
       submitLiveMediaCheck,
       endLiveSession,
-      caseRegistrationEnabled,
-      setCaseRegistrationEnabled,
-      lastCompletedRegisteredCaseId,
+      pendingRegistration,
+      attachPendingEvidence,
+      registerPendingCase,
+      discardPendingRegistration,
+      lastRegisteredCaseId,
+      caseRegistryError,
     }),
     [
       state,
@@ -284,9 +361,12 @@ export function LiveCaseProvider({ children }: { children: ReactNode }) {
       submitLiveLocation,
       submitLiveMediaCheck,
       endLiveSession,
-      caseRegistrationEnabled,
-      setCaseRegistrationEnabled,
-      lastCompletedRegisteredCaseId,
+      pendingRegistration,
+      attachPendingEvidence,
+      registerPendingCase,
+      discardPendingRegistration,
+      lastRegisteredCaseId,
+      caseRegistryError,
     ],
   );
 

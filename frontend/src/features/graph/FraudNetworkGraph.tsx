@@ -24,9 +24,9 @@ function toFlowEdges(graph: GraphUpdate): Edge[] {
     target: edge.target,
     label: edge.label,
     animated: true,
-    style: { stroke: "var(--color-primary)", strokeWidth: Math.min(3, edge.weight + 1) },
-    labelStyle: { fill: "var(--color-text-secondary)", fontSize: 10 },
-    labelBgStyle: { fill: "var(--color-surface)" },
+    style: { stroke: "#38bdf8", strokeWidth: Math.min(3, edge.weight + 1) },
+    labelStyle: { fill: "#94a3b8", fontSize: 10 },
+    labelBgStyle: { fill: "#0f172a" },
   }));
 }
 
@@ -35,21 +35,27 @@ export function FraudNetworkGraph({ graph }: { graph: GraphUpdate }) {
   const edges = useMemo(() => toFlowEdges(graph), [graph]);
 
   return (
-    <div className="h-full w-full">
+    <div className="h-full min-h-[220px] w-full bg-[#070b14]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.3 }}
+        fitViewOptions={{ padding: 0.35 }}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         zoomOnScroll={false}
+        minZoom={0.35}
+        maxZoom={1.8}
+        className="h-full w-full"
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--color-border)" />
-        <Controls showInteractive={false} className="[&_button]:border-border-strong [&_button]:bg-surface [&_button]:fill-text-secondary" />
+        <Background variant={BackgroundVariant.Dots} gap={18} size={1.5} color="#64748b" />
+        <Controls
+          showInteractive={false}
+          className="[&_button]:border-border-strong [&_button]:bg-surface [&_button]:fill-text-secondary"
+        />
       </ReactFlow>
     </div>
   );

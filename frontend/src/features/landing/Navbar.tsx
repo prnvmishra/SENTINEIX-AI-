@@ -6,6 +6,7 @@ import { Logo } from "@/components/Logo";
 import { Button } from "@/components/Button";
 import { cn } from "@/utils/cn";
 import { navLinks } from "@/mock/landingContent";
+import { isFirebaseConfigured } from "@/services/env";
 import { ROUTES } from "@/app/routes";
 
 export function Navbar() {
@@ -23,6 +24,10 @@ export function Navbar() {
 
   function scrollToSection(id: string) {
     setMobileOpen(false);
+    if (id === "top") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     const el = document.getElementById(id);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -31,7 +36,9 @@ export function Navbar() {
     <header
       className={cn(
         "fixed inset-x-0 top-0 z-40 transition-all duration-300",
-        scrolled ? "border-b border-border bg-bg/85 backdrop-blur-lg" : "border-b border-transparent bg-transparent",
+        scrolled
+          ? "border-b border-border/80 bg-bg/75 shadow-[0_8px_32px_-20px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+          : "border-b border-transparent bg-transparent",
       )}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
@@ -39,13 +46,13 @@ export function Navbar() {
           <Logo />
         </Link>
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="hidden items-center gap-0.5 lg:flex">
           {navLinks.map((link) => (
             <button
               key={link.id}
               type="button"
               onClick={() => scrollToSection(link.id)}
-              className="rounded-md px-3 py-2 text-sm text-text-secondary transition hover:text-primary"
+              className="rounded-lg px-3 py-2 text-sm text-text-secondary transition hover:bg-surface-raised/60 hover:text-primary"
             >
               {link.label}
             </button>
@@ -56,8 +63,12 @@ export function Navbar() {
           <Button variant="ghost" size="sm" onClick={() => navigate(ROUTES.login)}>
             Sign in
           </Button>
-          <Button variant="primary" size="sm" onClick={() => navigate(ROUTES.login)}>
-            Access Console
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => navigate(isFirebaseConfigured ? ROUTES.signup : ROUTES.login)}
+          >
+            {isFirebaseConfigured ? "Create account" : "Access Console"}
           </Button>
         </div>
 
@@ -95,8 +106,12 @@ export function Navbar() {
                 <Button variant="secondary" size="sm" onClick={() => navigate(ROUTES.login)}>
                   Sign in
                 </Button>
-                <Button variant="primary" size="sm" onClick={() => navigate(ROUTES.login)}>
-                  Access Console
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => navigate(isFirebaseConfigured ? ROUTES.signup : ROUTES.login)}
+                >
+                  {isFirebaseConfigured ? "Create account" : "Access Console"}
                 </Button>
               </div>
             </div>

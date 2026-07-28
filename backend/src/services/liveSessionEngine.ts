@@ -27,6 +27,9 @@ import { checkPhoneAgainstCallTracer } from "./intel/callTracerClient.js";
 import { checkDomainOrIpLocation } from "./intel/ipGeoClient.js";
 import { checkMediaForDeepfake } from "./intel/realityDefenderClient.js";
 import { isGroqTranscriptionEnabled, transcribeRecordedAudio } from "./intel/groqTranscriptionClient.js";
+import type { TranscriptionLanguage } from "./intel/groqTranscriptionClient.js";
+import { buildTranscriptLines, ensureLatinHinglishLines } from "./intel/transcriptNormalizer.js";
+import { splitUnpunctuatedTurns } from "./intel/conversationTurns.js";
 import { getIo } from "../socket/socketGateway.js";
 
 /**
@@ -84,6 +87,7 @@ interface LiveState {
   isRunning: boolean;
   mode: LiveSessionMode;
   lastAiRequestAtMs: number;
+  ownerSocketId: string | null;
 }
 
 // The deterministic keyword engine can never cover every real phrasing of a
@@ -91,7 +95,7 @@ interface LiveState {
 // periodically on a timer, independent of whether the rule engine's score
 // ever changes. This is what lets the AI catch a scam the keyword list
 // missed, instead of being gated entirely behind it.
-const MIN_AI_INTERVAL_MS = 7_000;
+const MIN_AI_INTERVAL_MS = 18_000;
 
 let live: LiveState | null = null;
 
@@ -160,7 +164,11 @@ function broadcastGraph(): void {
   broadcast("graph:update", update);
 }
 
-export function startLiveSession(victimAlias: string, mode: LiveSessionMode = "live-mic"): string {
+export function startLiveSession(
+  victimAlias: string,
+  mode: LiveSessionMode = "live-mic",
+  ownerSocketId: string | null = null,
+): string {
   const caseId = `live-${uuid()}`;
   live = {
     caseId,
@@ -182,6 +190,7 @@ export function startLiveSession(victimAlias: string, mode: LiveSessionMode = "l
     isRunning: true,
     mode,
     lastAiRequestAtMs: 0,
+    ownerSocketId,
   };
 
   broadcast("case:start", { case: buildSummary() });
@@ -220,7 +229,13 @@ function extractNewEntities(text: string): LiveEntity[] {
   }
   for (const match of text.matchAll(UPI_REGEX)) {
     const value = match[0];
-    if (value.includes("@") && !live.checkedEntities.has(value) && !/\.(com|in|org)$/i.test(value)) {
+    const host = value.split("@")[1]?.toLowerCase() ?? "";
+    // Reject email-shaped hosts (name@gmail from name@gmail.com) — real UPI
+    // handles look like @ybl / @oksbi / @paytm, not consumer mail domains.
+    const emailLike =
+      /^(gmail|googlemail|yahoo|outlook|hotmail|icloud|protonmail|rediffmail|aol|zoho)$/i.test(host) ||
+      host.includes(".");
+    if (value.includes("@") && !live.checkedEntities.has(value) && !emailLike) {
       found.push({ value, type: "upi" });
     }
   }
@@ -407,8 +422,8 @@ function applyAiInsight(insight: AiInsight): void {
   }
 }
 
-function requestLiveAiInsight(logLabel: string): void {
-  if (!live) return;
+function requestLiveAiInsight(logLabel: string): Promise<void> {
+  if (!live) return Promise.resolve();
   const context = { city: live.city, state: live.state, impersonatedAuthority: live.claimedAuthority };
   const caseId = live.caseId;
   const linesSoFar = [...live.transcript];
@@ -416,13 +431,13 @@ function requestLiveAiInsight(logLabel: string): void {
   const level = live.currentLevel;
   live.lastAiRequestAtMs = Date.now();
 
-  analyzeTranscriptWithAI(caseId, context, linesSoFar, score, level)
+  return analyzeTranscriptWithAI(caseId, context, linesSoFar, score, level)
     .then((insight) => {
       if (!insight || !live || live.caseId !== caseId) return;
       broadcast("ai:insight", insight);
       log(
         "AI Threat Analyst",
-        `${logLabel} — OpenRouter (${insight.model}) assessed ${insight.score}/100 (${insight.level}) from real transcribed speech.`,
+        `${logLabel} — AI (${insight.model}) assessed ${insight.score}/100 (${insight.level}) from real transcribed speech.`,
         insight.level === "critical" ? "error" : "info",
       );
       applyAiInsight(insight);
@@ -432,7 +447,7 @@ function requestLiveAiInsight(logLabel: string): void {
     });
 }
 
-export function submitLiveLine(text: string, speaker: SpeakerType): void {
+export function submitLiveLine(text: string, speaker: SpeakerType, timestampMs?: number): void {
   if (!live || !live.isRunning) return;
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -443,7 +458,8 @@ export function submitLiveLine(text: string, speaker: SpeakerType): void {
     sequence: live.transcript.length,
     speaker,
     text: trimmed,
-    timestampMs: Date.now() - live.startedAtMs,
+    // Recorded uploads pass Whisper segment time; live mic uses wall-clock offset.
+    timestampMs: typeof timestampMs === "number" && timestampMs >= 0 ? timestampMs : Date.now() - live.startedAtMs,
     keywords: [],
   };
   live.transcript.push(line);
@@ -520,47 +536,89 @@ export function submitLiveLine(text: string, speaker: SpeakerType): void {
   }
 }
 
-async function reverseGeocodeViaBigDataCloud(lat: number, lng: number): Promise<{ city: string; state: string } | null> {
+async function reverseGeocodeViaBigDataCloud(
+  lat: number,
+  lng: number,
+): Promise<{ city: string; state: string; locality?: string; addressLine?: string } | null> {
   const response = await fetch(
     `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`,
   );
   if (!response.ok) return null;
-  const data = (await response.json()) as { city?: string; locality?: string; principalSubdivision?: string };
+  const data = (await response.json()) as {
+    city?: string;
+    locality?: string;
+    principalSubdivision?: string;
+    localityInfo?: {
+      administrative?: Array<{ name?: string; description?: string; order?: number }>;
+      informative?: Array<{ name?: string; description?: string }>;
+    };
+  };
   const city = data.city || data.locality;
   const state = data.principalSubdivision;
-  return city && state ? { city, state } : null;
+  if (!city || !state) return null;
+
+  const admin = data.localityInfo?.administrative ?? [];
+  const informative = data.localityInfo?.informative ?? [];
+  const suburb =
+    admin.find((a) => /suburb|neighbourhood|neighborhood|ward|village|locality/i.test(a.description ?? ""))?.name ||
+    data.locality;
+  const streetish = informative.find((i) => /street|road|area|colony|sector/i.test(i.description ?? ""))?.name;
+  const addressParts = [streetish, suburb, city].filter(Boolean);
+  const addressLine = [...new Set(addressParts)].join(", ");
+
+  return { city, state, locality: suburb || city, addressLine: addressLine || undefined };
 }
 
-async function reverseGeocodeViaNominatim(lat: number, lng: number): Promise<{ city: string; state: string } | null> {
+async function reverseGeocodeViaNominatim(
+  lat: number,
+  lng: number,
+): Promise<{ city: string; state: string; locality?: string; addressLine?: string } | null> {
   const response = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=10`,
+    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
     { headers: { "User-Agent": "SentinelX-AI-Hackathon-Prototype/1.0 (contact: sentinelx-demo@example.com)" } },
   );
   if (!response.ok) return null;
-  const data = (await response.json()) as { address?: Record<string, string> };
+  const data = (await response.json()) as { address?: Record<string, string>; display_name?: string };
   const address = data.address ?? {};
-  const city = address.city || address.town || address.county || address.state_district;
+  const city = address.city || address.town || address.village || address.county || address.state_district;
   const state = address.state;
-  return city && state ? { city, state } : null;
+  if (!city || !state) return null;
+
+  const locality = address.suburb || address.neighbourhood || address.residential || address.quarter || city;
+  const addressLine = [
+    address.road,
+    address.neighbourhood || address.suburb,
+    address.postcode,
+    city,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return { city, state, locality, addressLine: addressLine || data.display_name };
 }
 
-export async function submitLiveLocation(lat: number, lng: number): Promise<void> {
-  if (!live) return;
+export async function submitLiveLocation(lat: number, lng: number, accuracyMeters?: number): Promise<void> {
+  if (!live || !live.isRunning) return;
   const caseId = live.caseId;
   // Real GPS coordinates as a readable last-resort fallback — the
   // coordinates themselves are always genuinely real regardless of whether
   // either reverse-geocoding provider below is reachable.
-  let city = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  let city = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   let state = "GPS coordinates (place name lookup unavailable)";
+  let locality: string | undefined;
+  let addressLine: string | undefined;
 
   try {
     // BigDataCloud's reverse-geocode-client endpoint is free, keyless, and
     // (unlike Nominatim) does not block cloud/datacenter IPs, so it's tried
-    // first. Nominatim is kept as a second, independent attempt.
+    // first. Nominatim is kept as a second, independent attempt (zoom=18 for
+    // street-level detail).
     const resolved = (await reverseGeocodeViaBigDataCloud(lat, lng)) ?? (await reverseGeocodeViaNominatim(lat, lng));
     if (resolved) {
       city = resolved.city;
       state = resolved.state;
+      locality = resolved.locality;
+      addressLine = resolved.addressLine;
     } else {
       console.warn("[live-session] both reverse-geocode providers were unavailable; showing raw coordinates");
     }
@@ -569,7 +627,7 @@ export async function submitLiveLocation(lat: number, lng: number): Promise<void
   }
 
   if (!live || live.caseId !== caseId) return;
-  live.city = city;
+  live.city = addressLine ? `${locality ?? city}` : city;
   live.state = state;
 
   const ping: MapPing = {
@@ -579,14 +637,22 @@ export async function submitLiveLocation(lat: number, lng: number): Promise<void
     lng,
     city: live.city,
     state: live.state,
+    locality,
+    addressLine,
+    accuracyMeters,
     timestampMs: Date.now(),
   };
   broadcast("map:ping", ping);
-  log("Live Session Engine", `Real device GPS location resolved to ${live.city}, ${live.state}.`);
+  log(
+    "Live Session Engine",
+    `Real device GPS resolved: ${addressLine ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`} (${live.city}, ${live.state})${
+      typeof accuracyMeters === "number" ? ` · ±${Math.round(accuracyMeters)}m` : ""
+    }.`,
+  );
 }
 
 export function submitLiveMediaCheck(mediaBase64: string, mediaType: "audio" | "image", fileName: string): void {
-  if (!live) return;
+  if (!live || !live.isRunning) return;
   const caseId = live.caseId;
 
   checkMediaForDeepfake(caseId, mediaBase64, mediaType, fileName)
@@ -604,7 +670,7 @@ export function submitLiveMediaCheck(mediaBase64: string, mediaType: "audio" | "
     });
 }
 
-export function endLiveSession(): void {
+export function endLiveSession(options?: { skipFinalAi?: boolean }): void {
   if (!live || !live.isRunning) return;
 
   const event: TimelineEvent = {
@@ -633,7 +699,9 @@ export function endLiveSession(): void {
     read: false,
   };
   broadcast("notification:new", notification);
-  requestLiveAiInsight("Final live-session review");
+  if (!options?.skipFinalAi) {
+    void requestLiveAiInsight("Final live-session review");
+  }
 
   live.isRunning = false;
 }
@@ -642,20 +710,23 @@ export function isLiveSessionRunning(): boolean {
   return live?.isRunning ?? false;
 }
 
+export function getLiveSessionOwnerSocketId(): string | null {
+  return live?.isRunning ? live.ownerSocketId : null;
+}
+
+/** Ends the live session only if this socket started it (refresh / disconnect cleanup). */
+export function endLiveSessionIfOwnedBy(socketId: string): void {
+  if (live?.isRunning && live.ownerSocketId === socketId) {
+    endLiveSession();
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const RECORDING_LINE_DELAY_MS = 250;
-const MAX_RECORDING_LINES = 200;
-
-/** Splits a transcript with no segment timing into sentence-ish chunks as a fallback. */
-function splitIntoLines(text: string): string[] {
-  return text
-    .split(/(?<=[.!?।])\s+|\n+/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-}
+const RECORDING_LINE_DELAY_MS = 180;
+const MAX_RECORDING_LINES = 400;
 
 export interface RecordedCallAnalysisResult {
   caseId: string;
@@ -681,7 +752,7 @@ export async function analyzeRecordedCall(
   audioBuffer: Buffer,
   mimeType: string,
   speaker: SpeakerType,
-  language?: "en" | "hi",
+  language: TranscriptionLanguage = "auto",
 ): Promise<RecordedCallAnalysisResult | { error: string }> {
   if (!isGroqTranscriptionEnabled()) {
     return {
@@ -696,31 +767,72 @@ export async function analyzeRecordedCall(
   const transcript = await transcribeRecordedAudio(audioBuffer, mimeType, language);
   if (!transcript) return { error: "Transcription failed — the audio file may be corrupt, too long, or an unsupported format." };
 
-  const lines =
-    transcript.segments.length > 0 ? transcript.segments.map((s) => s.text) : splitIntoLines(transcript.fullText);
-  if (lines.length === 0) {
+  // Prefer Whisper timed segments as-is (real timing + natural breath groups).
+  // Do NOT re-join the whole call — that merges scammer+victim into one blob.
+  type TimedLine = { text: string; startMs: number };
+  let timedLines: TimedLine[] =
+    transcript.segments.length > 0
+      ? transcript.segments
+          .map((s) => ({ text: s.text.trim(), startMs: Math.max(0, s.startMs) }))
+          .filter((s) => s.text.length > 0)
+      : buildTranscriptLines([], transcript.fullText).map((text, i) => ({
+          text,
+          startMs: i * 2000,
+        }));
+
+  if (timedLines.length === 0) {
     return { error: "No speech was detected in this recording." };
   }
 
-  const trimmedLines = lines.slice(0, MAX_RECORDING_LINES);
-  // Classify who's actually speaking on EACH line (real per-line diarization
-  // by content/turn-taking) instead of stamping the citizen's one manual
-  // pick onto every single line of the call.
-  const speakers = await inferLineSpeakers(trimmedLines, speaker);
+  const latinTexts = await ensureLatinHinglishLines(timedLines.map((l) => l.text));
+  timedLines = timedLines.map((line, i) => ({ ...line, text: latinTexts[i] ?? line.text }));
+
+  // Only break clearly mashed multi-turn lines (>40 words). Keep short Whisper segs intact.
+  const expanded: TimedLine[] = [];
+  for (const line of timedLines) {
+    const words = line.text.split(/\s+/).filter(Boolean);
+    if (words.length > 40) {
+      const parts = splitUnpunctuatedTurns(line.text);
+      let chunks: string[] = parts.length >= 2 ? parts : [];
+      if (chunks.length === 0) {
+        for (let i = 0; i < words.length; i += 22) {
+          chunks.push(words.slice(i, i + 22).join(" "));
+        }
+      }
+      const step = Math.max(800, Math.round(3000 / Math.max(1, chunks.length)));
+      chunks.forEach((text, idx) => {
+        expanded.push({ text, startMs: line.startMs + idx * step });
+      });
+    } else {
+      expanded.push(line);
+    }
+  }
+
+  const linesToSubmit = expanded.slice(0, MAX_RECORDING_LINES);
+  const speakers = await inferLineSpeakers(
+    linesToSubmit.map((l) => l.text),
+    speaker,
+  );
+
+  console.info(
+    `[recorded-call] ${transcript.segments.length} Whisper segs → ${linesToSubmit.length} timed lines`,
+  );
 
   const caseId = startLiveSession(victimAlias, "recorded-upload");
 
-  for (let i = 0; i < trimmedLines.length; i += 1) {
+  for (let i = 0; i < linesToSubmit.length; i += 1) {
     if (!live || live.caseId !== caseId) break;
-    submitLiveLine(trimmedLines[i], speakers[i] ?? speaker);
+    submitLiveLine(linesToSubmit[i]!.text, speakers[i] ?? "unknown", linesToSubmit[i]!.startMs);
     await sleep(RECORDING_LINE_DELAY_MS);
   }
 
+  // Await final AI so returned + case:end score matches the gauge (not a stale rule-only score).
+  await requestLiveAiInsight("Final recorded-call review");
   const finalScore = live?.currentScore ?? 0;
   const finalLevel = live?.currentLevel ?? "low";
-  endLiveSession();
+  endLiveSession({ skipFinalAi: true });
 
-  return { caseId, lineCount: lines.length, finalScore, finalLevel, language: transcript.language };
+  return { caseId, lineCount: linesToSubmit.length, finalScore, finalLevel, language: transcript.language };
 }
 
 export interface TextConversationAnalysisResult {
@@ -759,13 +871,15 @@ export async function analyzeTextConversation(
 
   for (let i = 0; i < trimmedLines.length; i += 1) {
     if (!live || live.caseId !== caseId) break;
-    submitLiveLine(trimmedLines[i], speakers[i] ?? speaker);
+    submitLiveLine(trimmedLines[i], speakers[i] ?? "unknown");
     await sleep(RECORDING_LINE_DELAY_MS);
   }
 
+  // Await final AI so returned + case:end score matches the gauge (not a stale rule-only score).
+  await requestLiveAiInsight("Final screenshot review");
   const finalScore = live?.currentScore ?? 0;
   const finalLevel = live?.currentLevel ?? "low";
-  endLiveSession();
+  endLiveSession({ skipFinalAi: true });
 
   return { caseId, lineCount: cleanedLines.length, finalScore, finalLevel };
 }

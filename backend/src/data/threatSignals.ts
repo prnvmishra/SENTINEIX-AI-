@@ -23,6 +23,12 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "customs department",
       "reserve bank",
       "rbi officer",
+      "rbi department",
+      "rbi bank",
+      "reserve bank of india",
+      "rbi",
+      "bank department",
+      "banking department",
       "income tax department",
       "enforcement directorate",
       "fedex compliance",
@@ -38,6 +44,13 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "under investigation",
       "money laundering",
       "national security",
+      "cybercrime case",
+      "cyber crime case",
+      "court action",
+      "legal action",
+      "you are under",
+      "summons",
+      "notice issued",
       "is arrested",
       "arrested now",
       "cyber officer",
@@ -56,6 +69,8 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "case dala hai",
       "case darj",
       "fir darj",
+      "court mein case",
+      "police station aao",
       // Devanagari
       "गिरफ्तार",
       "वारंट",
@@ -66,6 +81,7 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "कस्टम विभाग",
       "साइबर क्राइम",
       "एफआईआर",
+      "कोर्ट",
     ],
   },
   {
@@ -130,6 +146,19 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
     category: "money_transfer",
     label: "Money transfer request",
     weight: 25,
+    // A real caller phrases a large-money mention in endless different ways
+    // ("rupees 90 lakhs", "90 lakh rupees", "9000000 rupees") — trying to
+    // enumerate every phrase is a losing game, so ANY numeral next to a
+    // lakh/crore/thousand unit is treated as a real signal on its own,
+    // regardless of the exact surrounding words.
+    patterns: [
+      /\b\d[\d,.]*\s*(lakh|lakhs|lac|lacs|crore|crores)\b/i,
+      /\b(lakh|lakhs|lac|lacs|crore|crores)\s*[\d,.]*\d\b/i,
+      // Plain rupee amounts common in chat blackmail ("24000", "Rs 5000", "₹12,000")
+      /\b(?:rs\.?|inr|₹)\s*[\d,]{3,}\b/i,
+      /\b[\d,]{4,}\s*(?:rs\.?|rupees?|rupaye)\b/i,
+      /\b(?:pay|send|transfer|deposit)\s+(?:rs\.?|₹)?\s*[\d,]{3,}\b/i,
+    ],
     keywords: [
       "transfer the amount",
       "transfer funds",
@@ -144,6 +173,10 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "10 lacs",
       "lacs rupees",
       "lakhs rupees",
+      "money of rupees",
+      "complaint regarding your bank",
+      "complaint against your bank",
+      "your bank account has",
       "on my upi",
       "my upi id",
       "google pay",
@@ -152,6 +185,11 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "wire transfer",
       "deposit the amount",
       "refundable amount",
+      "send money",
+      "pay immediately",
+      "payment of",
+      "amount of rs",
+      "rupees immediately",
       // Hinglish
       "paisa transfer karo",
       "paise transfer karo",
@@ -169,6 +207,9 @@ export const threatSignalDefinitions: ThreatSignalDefinition[] = [
       "otp bata do",
       "bank details do",
       "account number do",
+      "paise do",
+      "fine bharo",
+      "amount bhejo",
       // Devanagari
       "पैसे भेज दो",
       "रुपये ट्रांसफर करो",

@@ -46,6 +46,7 @@ export function OfficerRegistryPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tab, setTab] = useState<"checkNumber" | "verify" | "register" | "directory">("checkNumber");
+  const canRegisterOfficers = user ? user.role !== "citizen" : false;
 
   return (
     <div className="min-h-screen bg-bg text-text-primary">
@@ -99,7 +100,19 @@ export function OfficerRegistryPage() {
 
           {tab === "checkNumber" && <CheckNumberCard />}
           {tab === "verify" && <VerifyOfficerCard />}
-          {tab === "register" && <RegisterOfficerCard registeredBy={user?.email ?? "unknown"} />}
+          {tab === "register" &&
+            (canRegisterOfficers ? (
+              <RegisterOfficerCard registeredBy={user?.email ?? "unknown"} />
+            ) : (
+              <GlassPanel noPadding>
+                <PanelHeader icon={UserPlus} title="Register an officer" subtitle="Restricted to operational accounts" />
+                <div className="p-4 text-xs leading-relaxed text-text-secondary">
+                  Citizen accounts can check phone numbers and verify caller badges, but only signed-in officers,
+                  investigators, or administrators can add entries to the officer directory. Sign up with an operational
+                  role, or ask your administrator to upgrade your account from the Admin panel.
+                </div>
+              </GlassPanel>
+            ))}
           {tab === "directory" && <DirectoryCard />}
         </motion.div>
       </main>

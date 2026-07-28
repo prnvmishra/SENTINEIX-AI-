@@ -25,6 +25,13 @@ export interface ThreatSignalDefinition {
   label: string;
   weight: number;
   keywords: string[];
+  /**
+   * Optional regex patterns checked IN ADDITION to the fixed keyword list —
+   * used for signals better expressed as a pattern than an exhaustive phrase
+   * list (e.g. ANY numeric money amount in lakhs/crore, regardless of the
+   * exact surrounding words a real caller happens to use).
+   */
+  patterns?: RegExp[];
 }
 
 export interface DecisionRecommendation {

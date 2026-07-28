@@ -12,6 +12,8 @@ import {
 } from "../services/simulationEngine.js";
 import {
   endLiveSession,
+  endLiveSessionIfOwnedBy,
+  isLiveSessionRunning,
   startLiveSession,
   submitLiveLine,
   submitLiveLocation,
@@ -33,14 +35,32 @@ export function registerSocketGateway(io: TypedServer): void {
 
     replayBufferedEventsTo(socket);
 
-    socket.on("simulation:start", ({ scenarioId }) => startSimulation(scenarioId));
+    socket.on("simulation:start", ({ scenarioId }) => {
+      if (isLiveSessionRunning()) {
+        console.warn(`[socket] Ignoring simulation:start — live session already running (${socket.id})`);
+        return;
+      }
+      startSimulation(scenarioId);
+    });
     socket.on("simulation:stop", () => stopSimulation());
     socket.on("simulation:pause", () => pauseSimulation());
     socket.on("simulation:resume", () => resumeSimulation());
 
-    socket.on("live:start", () => startLiveSession(user.name));
+    socket.on("live:start", () => {
+      if (isSimulationRunning()) {
+        console.warn(`[socket] Ignoring live:start — demo simulation already running (${socket.id})`);
+        return;
+      }
+      if (isLiveSessionRunning()) {
+        console.warn(`[socket] Ignoring live:start — another live session is already active (${socket.id})`);
+        return;
+      }
+      startLiveSession(user.name, "live-mic", socket.id);
+    });
     socket.on("live:line", ({ text, speaker }) => submitLiveLine(text, speaker));
-    socket.on("live:location", ({ lat, lng }) => void submitLiveLocation(lat, lng));
+    socket.on("live:location", ({ lat, lng, accuracyMeters }) =>
+      void submitLiveLocation(lat, lng, accuracyMeters),
+    );
     socket.on("live:mediaCheck", ({ mediaBase64, mediaType, fileName }) =>
       submitLiveMediaCheck(mediaBase64, mediaType, fileName),
     );
@@ -48,6 +68,8 @@ export function registerSocketGateway(io: TypedServer): void {
 
     socket.on("disconnect", (reason) => {
       console.log(`[socket] ${user.name} disconnected (${reason}) — ${socket.id}`);
+      // Refresh / tab close mid-live used to leave the server "busy" forever.
+      endLiveSessionIfOwnedBy(socket.id);
     });
   });
 }

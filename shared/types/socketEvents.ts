@@ -27,6 +27,7 @@ export interface LiveLinePayload {
 export interface LiveLocationPayload {
   lat: number;
   lng: number;
+  accuracyMeters?: number;
   city?: string;
   state?: string;
 }

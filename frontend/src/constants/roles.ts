@@ -15,6 +15,9 @@ export const roleOptions: RoleOption[] = [
   { role: "citizen", label: "Citizen", organizationPlaceholder: "Public Reporting Portal" },
 ];
 
+/** Roles a new account may pick at signup — `gov_admin` is excluded and must be claimed once from the Admin panel. */
+export const signupRoleOptions: RoleOption[] = roleOptions.filter((option) => option.role !== "gov_admin");
+
 export const roleLabels: Record<UserRole, string> = {
   citizen: "Citizen",
   officer: "Cyber Crime Officer",

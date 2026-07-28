@@ -27,11 +27,49 @@ const levelColor: Record<ThreatLevel, string> = {
   critical: COLORS.danger,
 };
 
+function pdfSafe(text: string): string {
+  // jsPDF built-in fonts are Latin-1 only — strip unsupported chars so save() never crashes.
+  return text.replace(/[^\u0009\u000a\u000d\u0020-\u00ff]/g, "?");
+}
+
 function formatTimestamp(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function loadImageAsDataUrl(url: string): Promise<{ dataUrl: string; format: "JPEG" | "PNG"; width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const maxEdge = 1400;
+        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(image, 0, 0, width, height);
+        const isPng = url.startsWith("data:image/png");
+        const dataUrl = canvas.toDataURL(isPng ? "image/png" : "image/jpeg", 0.85);
+        resolve({ dataUrl, format: isPng ? "PNG" : "JPEG", width, height });
+      } catch {
+        resolve(null);
+      }
+    };
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
 }
 
 class ReportRenderer {
@@ -68,7 +106,7 @@ class ReportRenderer {
     this.doc.setFont("helvetica", "normal");
     this.doc.setFontSize(size);
     this.doc.setTextColor(color);
-    const lines: string[] = this.doc.splitTextToSize(text, CONTENT_WIDTH);
+    const lines: string[] = this.doc.splitTextToSize(pdfSafe(text), CONTENT_WIDTH);
     for (const line of lines) {
       this.ensureSpace(5.5);
       this.doc.text(line, MARGIN, this.cursorY);
@@ -82,7 +120,7 @@ class ReportRenderer {
     this.doc.setFontSize(9.5);
     this.doc.setTextColor(color);
     for (const item of items) {
-      const lines: string[] = this.doc.splitTextToSize(item, CONTENT_WIDTH - 6);
+      const lines: string[] = this.doc.splitTextToSize(pdfSafe(item), CONTENT_WIDTH - 6);
       this.ensureSpace(5 * lines.length + 1);
       this.doc.setFillColor(COLORS.primary);
       this.doc.circle(MARGIN + 1, this.cursorY - 1.2, 0.8, "F");
@@ -114,7 +152,7 @@ class ReportRenderer {
       this.doc.setFont("helvetica", "bold");
       this.doc.setFontSize(9.5);
       this.doc.setTextColor(COLORS.ink);
-      this.doc.text(value, x, y + 4.6);
+      this.doc.text(pdfSafe(value), x, y + 4.6);
     });
 
     const rows = Math.ceil(pairs.length / 2);
@@ -133,19 +171,19 @@ class ReportRenderer {
     this.doc.setFont("helvetica", "normal");
     this.doc.setFontSize(8.5);
     this.doc.setTextColor(COLORS.textSecondary);
-    this.doc.text("NATIONAL FRAUD INTELLIGENCE PLATFORM · MOCK INTELLIGENCE ENGINE", MARGIN, 18.5);
+    this.doc.text("NATIONAL FRAUD INTELLIGENCE PLATFORM · INVESTIGATION ENGINE", MARGIN, 18.5);
 
     this.doc.setFont("helvetica", "bold");
     this.doc.setFontSize(11);
     this.doc.setTextColor(COLORS.textPrimary);
-    this.doc.text("PROTOTYPE INVESTIGATION REPORT", MARGIN, 26.5);
+    this.doc.text("INVESTIGATION REPORT", MARGIN, 26.5);
 
     this.doc.setFont("helvetica", "normal");
     this.doc.setFontSize(8);
     this.doc.setTextColor(COLORS.textMuted);
     const generated = `Generated: ${new Date(this.report.generatedAt).toLocaleString("en-IN")}`;
     this.doc.text(generated, PAGE_WIDTH - MARGIN, 13, { align: "right" });
-    this.doc.text(`Case ID: ${this.report.caseId}`, PAGE_WIDTH - MARGIN, 18, { align: "right" });
+    this.doc.text(`Case ID: ${pdfSafe(this.report.caseId)}`, PAGE_WIDTH - MARGIN, 18, { align: "right" });
 
     this.cursorY = 40;
   }
@@ -167,6 +205,39 @@ class ReportRenderer {
     this.cursorY += 20;
   }
 
+  async evidenceScreenshot() {
+    if (!this.report.evidenceImageUrl) return;
+
+    this.sectionTitle("Chat Screenshot Evidence");
+    const loaded = await loadImageAsDataUrl(this.report.evidenceImageUrl);
+    if (!loaded) {
+      this.paragraph(
+        "Screenshot evidence is attached to this case but could not be embedded in the PDF (network/CORS). Open the case in Historical Cases to view the image.",
+        9,
+        COLORS.warning,
+      );
+      return;
+    }
+
+    const maxWidthMm = CONTENT_WIDTH;
+    const maxHeightMm = 120;
+    const pxToMm = 0.15;
+    let drawW = loaded.width * pxToMm;
+    let drawH = loaded.height * pxToMm;
+    const scale = Math.min(1, maxWidthMm / drawW, maxHeightMm / drawH);
+    drawW *= scale;
+    drawH *= scale;
+
+    this.ensureSpace(drawH + 6);
+    try {
+      this.doc.addImage(loaded.dataUrl, loaded.format, MARGIN, this.cursorY, drawW, drawH);
+      this.cursorY += drawH + 6;
+    } catch (error) {
+      console.warn("[report] addImage failed:", error);
+      this.paragraph("Screenshot evidence present on the case record but could not be rendered into this PDF.", 9, COLORS.warning);
+    }
+  }
+
   footer() {
     const pageCount = this.doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i += 1) {
@@ -184,21 +255,23 @@ class ReportRenderer {
     }
   }
 
-  render(): jsPDF {
+  async render(): Promise<jsPDF> {
     const r = this.report;
     this.header();
 
     this.sectionTitle("Case Summary");
     this.keyValueGrid([
-      ["Case Title", r.title],
-      ["Impersonated Authority", r.impersonatedAuthority],
-      ["Victim Alias", r.victimAlias],
-      ["Location", `${r.city}, ${r.state}`],
+      ["Case Title", pdfSafe(r.title)],
+      ["Impersonated Authority", pdfSafe(r.impersonatedAuthority)],
+      ["Victim Alias", pdfSafe(r.victimAlias)],
+      ["Location", pdfSafe(`${r.city}, ${r.state}`)],
     ]);
     this.threatBadge();
 
     this.sectionTitle("Incident Summary");
     this.paragraph(r.incidentSummary);
+
+    await this.evidenceScreenshot();
 
     if (r.indicators.length > 0) {
       this.sectionTitle(`Detected Threat Indicators (${r.indicators.length})`);
@@ -212,7 +285,17 @@ class ReportRenderer {
 
     if (r.evidence.length > 0) {
       this.sectionTitle("Evidence Log");
-      this.bulletList(r.evidence);
+      this.bulletList(
+        r.evidence.map((item) => {
+          if (item.startsWith("Screenshot evidence URL: data:") || item.includes("data:image")) {
+            return "Screenshot evidence: embedded image above (inline copy)";
+          }
+          if (item.startsWith("Audio evidence URL: data:") || item.includes("data:audio")) {
+            return "Audio evidence attached — play in Historical Cases (not inlined as base64 in this PDF)";
+          }
+          return item;
+        }),
+      );
     }
 
     if (r.timeline.length > 0) {
@@ -230,9 +313,30 @@ class ReportRenderer {
   }
 }
 
-export function generateInvestigationReportPdf(report: InvestigationReport): void {
+export async function generateInvestigationReportPdf(report: InvestigationReport): Promise<void> {
   const renderer = new ReportRenderer(report);
-  const doc = renderer.render();
-  const filename = `SentinelX-Investigation-Report-${report.caseId}.pdf`;
-  doc.save(filename);
+  const doc = await renderer.render();
+  const safeId = report.caseId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+  const filename = `SentinelX-Investigation-Report-${safeId}.pdf`;
+
+  try {
+    doc.save(filename);
+  } catch (saveError) {
+    console.warn("[report] doc.save failed, trying blob download:", saveError);
+    try {
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (blobError) {
+      console.error("[report] blob download failed:", blobError);
+      throw new Error("PDF download blocked by the browser — allow downloads for localhost and try again.");
+    }
+  }
 }

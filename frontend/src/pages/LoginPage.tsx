@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { AlertCircle, Eye, EyeOff, Loader2, ShieldHalf } from "lucide-react";
+import { BackToHome } from "@/components/BackToHome";
 import { Button } from "@/components/Button";
 import { GlassPanel } from "@/components/GlassPanel";
 import { Logo } from "@/components/Logo";
@@ -15,7 +16,8 @@ import { ROUTES } from "@/app/routes";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const location = useLocation();
+  const { login, status } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +26,16 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const redirectTo =
+    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname &&
+    (location.state as { from: { pathname: string } }).from.pathname.startsWith("/dashboard")
+      ? (location.state as { from: { pathname: string } }).from.pathname
+      : ROUTES.dashboard;
+
+  if (status === "authenticated") {
+    return <Navigate to={redirectTo} replace />;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -31,7 +43,7 @@ export function LoginPage() {
 
     try {
       await login(email, password, remember);
-      navigate(ROUTES.dashboard);
+      navigate(redirectTo);
     } catch (err) {
       const message =
         err instanceof ApiClientError
@@ -52,9 +64,10 @@ export function LoginPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-6 py-12">
-      <div className="grid-lines-bg absolute inset-0 opacity-30" />
-      <div className="absolute left-1/2 top-1/2 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-[140px]" />
+    <main className="app-atmosphere relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-12">
+      <div className="pointer-events-none absolute inset-0 opacity-35 radar-mesh" />
+
+      <BackToHome className="absolute left-6 top-6 z-20 sm:left-8 sm:top-8" />
 
       <motion.div
         initial="hidden"
@@ -63,14 +76,16 @@ export function LoginPage() {
         className="relative z-10 grid w-full max-w-5xl grid-cols-1 gap-6 lg:grid-cols-[1.1fr_1fr]"
       >
         <GlassPanel glow className="flex flex-col p-8">
-          <button type="button" onClick={() => navigate(ROUTES.landing)} className="mb-8 self-start">
-            <Logo />
+          <button
+            type="button"
+            onClick={() => navigate(ROUTES.landing)}
+            className="mb-8 self-start transition-transform duration-300 hover:scale-[1.02]"
+          >
+            <Logo size="lg" />
           </button>
 
-          <h1 className="text-2xl font-semibold text-text-primary">Sign in to the console</h1>
-          <p className="mt-1.5 text-sm text-text-secondary">
-            Prototype authentication — access is scoped to your operational role.
-          </p>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary">Sign in to the console</h1>
+          <p className="mt-1.5 text-sm text-text-secondary">Access is scoped to your operational role.</p>
 
           <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
             <label className="flex flex-col gap-1.5 text-xs font-medium text-text-secondary">
@@ -81,7 +96,7 @@ export function LoginPage() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="officer@sentinelx.ai"
-                className="rounded-md border border-border-strong bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary"
+                className="rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </label>
 
@@ -94,7 +109,7 @@ export function LoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="••••••••••"
-                  className="w-full rounded-md border border-border-strong bg-surface px-3 py-2.5 pr-10 text-sm text-text-primary outline-none transition focus:border-primary"
+                  className="w-full rounded-xl border border-border-strong bg-surface/80 px-3 py-2.5 pr-10 text-sm text-text-primary outline-none transition duration-300 focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   type="button"
@@ -118,7 +133,7 @@ export function LoginPage() {
             </label>
 
             {error && (
-              <div className="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+              <div className="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 {error}
               </div>
@@ -147,8 +162,7 @@ export function LoginPage() {
           )}
 
           <p className="mt-3 text-[11px] text-text-muted">
-            This is a hackathon prototype. No real citizen data is processed — see the platform disclaimer for
-            details.
+            This is a hackathon prototype. No real citizen data is processed — see the platform disclaimer for details.
           </p>
         </GlassPanel>
 
@@ -157,24 +171,27 @@ export function LoginPage() {
             <div>
               <p className="text-sm font-semibold text-text-primary">Real-time & AI-verified</p>
               <p className="mt-1 text-xs text-text-muted">
-                This console runs on Firebase Authentication + Realtime Database, with an OpenRouter-powered AI
-                Threat Analyst validating the deterministic detection engine live.
+                This console runs on Firebase Authentication + Realtime Database, with an OpenRouter-powered AI Threat
+                Analyst validating the deterministic detection engine live.
               </p>
             </div>
             <ul className="flex flex-col gap-2 text-xs text-text-secondary">
               <li className="flex items-start gap-2">
-                <ShieldHalf className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> Firebase-authenticated sessions, scoped by role
+                <ShieldHalf className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> Firebase-authenticated sessions,
+                scoped by role
               </li>
               <li className="flex items-start gap-2">
-                <ShieldHalf className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> Cross-device realtime notification sync
+                <ShieldHalf className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> Cross-device realtime notification
+                sync
               </li>
               <li className="flex items-start gap-2">
-                <ShieldHalf className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> Genuine LLM threat analysis, not just mock heuristics
+                <ShieldHalf className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> Genuine LLM threat analysis, not just
+                mock heuristics
               </li>
             </ul>
-            <div className="mt-auto rounded-md border border-border bg-bg/60 px-3 py-2 text-[10px] text-text-muted">
-              Don't have an account yet? Use <span className="font-medium text-primary">Create an account</span> — any
-              role works, no invite required for this demo.
+            <div className="mt-auto rounded-xl border border-border bg-bg/60 px-3 py-2 text-[10px] text-text-muted">
+              Don&apos;t have an account yet? Use <span className="font-medium text-primary">Create an account</span> —
+              any role works, no invite required for this demo.
             </div>
           </GlassPanel>
         ) : (
@@ -192,7 +209,7 @@ export function LoginPage() {
                   key={account.email}
                   type="button"
                   onClick={() => fillDemoAccount(account.email)}
-                  className="flex flex-col gap-0.5 rounded-lg border border-border bg-surface/70 px-3 py-2.5 text-left transition hover:border-primary/50 hover:bg-surface-raised"
+                  className="flex flex-col gap-0.5 rounded-xl border border-border bg-surface/70 px-3 py-2.5 text-left transition duration-300 hover:border-primary/50 hover:bg-surface-raised"
                 >
                   <span className="text-xs font-semibold text-text-primary">{account.label}</span>
                   <span className="text-[11px] text-text-muted">{account.organization}</span>
@@ -201,7 +218,7 @@ export function LoginPage() {
               ))}
             </div>
 
-            <div className="mt-auto rounded-md border border-border bg-bg/60 px-3 py-2 text-[10px] text-text-muted">
+            <div className="mt-auto rounded-xl border border-border bg-bg/60 px-3 py-2 text-[10px] text-text-muted">
               Demo password for all roles: <span className="font-mono text-primary">{DEMO_PASSWORD}</span>
             </div>
           </GlassPanel>
@@ -212,7 +229,11 @@ export function LoginPage() {
 }
 
 function humanizeFirebaseError(message: string): string {
-  if (message.includes("auth/invalid-credential") || message.includes("auth/wrong-password") || message.includes("auth/user-not-found")) {
+  if (
+    message.includes("auth/invalid-credential") ||
+    message.includes("auth/wrong-password") ||
+    message.includes("auth/user-not-found")
+  ) {
     return "Invalid email or password.";
   }
   if (message.includes("auth/too-many-requests")) return "Too many attempts — please wait a moment and try again.";

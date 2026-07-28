@@ -39,7 +39,7 @@ export function ToastCenter() {
   }
 
   return (
-    <div className="pointer-events-none fixed right-4 top-4 z-[100] flex w-80 flex-col gap-2">
+    <div className="pointer-events-none fixed right-4 top-16 z-[90] flex w-80 flex-col gap-2">
       <AnimatePresence>
         {visible.map((notification) => {
           const config = severityConfig[notification.severity];

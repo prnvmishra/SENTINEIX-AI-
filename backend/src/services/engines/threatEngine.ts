@@ -19,6 +19,15 @@ function matchKeyword(text: string, keywords: string[]): string | null {
   return keywords.find((keyword) => lower.includes(keyword)) ?? null;
 }
 
+function matchPattern(text: string, patterns: RegExp[] | undefined): string | null {
+  if (!patterns) return null;
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return match[0];
+  }
+  return null;
+}
+
 export function scoreToLevel(score: number): ThreatLevel {
   if (score >= 75) return "critical";
   if (score >= 50) return "high";
@@ -41,7 +50,7 @@ export function runThreatEngine(transcript: TranscriptLine[]): ThreatEngineResul
     for (const signal of threatSignalDefinitions) {
       if (triggeredCategories.has(signal.category)) continue;
 
-      const matchedPhrase = matchKeyword(line.text, signal.keywords);
+      const matchedPhrase = matchKeyword(line.text, signal.keywords) ?? matchPattern(line.text, signal.patterns);
       if (!matchedPhrase) continue;
 
       triggeredCategories.add(signal.category);

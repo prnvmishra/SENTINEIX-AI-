@@ -1,0 +1,51 @@
+rules_version = '2';
+
+/**
+ * Firebase Realtime Database rules — publish in:
+ * Firebase Console → Realtime Database → Rules → Publish
+ *
+ * Access model:
+ * - First account to claim admin writes system/govAdminUid (locks self-claim).
+ * - Further admins only if an existing gov_admin grants the role.
+ * - accountDirectory: admin-readable roster of every signed-up profile.
+ * - Cases: register stamps registeredByUid; owner updates; admin deletes.
+ */
+{
+  "rules": {
+    "system": {
+      "govAdminUid": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.val() == auth.uid) || (data.exists() && data.val() == auth.uid))"
+      }
+    },
+    "users": {
+      ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid)",
+      "$uid": {
+        ".read": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid)",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid || (auth.uid == $uid && ( !newData.hasChild('role') || newData.child('role').val() != 'gov_admin' || data.child('role').val() == 'gov_admin' || (!root.child('system').child('govAdminUid').exists() && newData.child('role').val() == 'gov_admin') )))"
+      }
+    },
+    "accountDirectory": {
+      ".read": "auth != null && (root.child('system').child('govAdminUid').val() == auth.uid || root.child('users').child(auth.uid).child('role').val() == 'gov_admin')",
+      "$uid": {
+        ".write": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid)"
+      }
+    },
+    "liveActivity": {
+      "notifications": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "officerRegistry": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "caseRegistry": {
+      ".read": "auth != null",
+      "$caseId": {
+        ".write": "auth != null && ( (!data.exists() && newData.child('registeredByUid').val() == auth.uid) || (data.exists() && !newData.exists() && (root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid)) || (data.exists() && newData.exists() && (data.child('registeredByUid').val() == auth.uid || root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid || (!data.hasChild('registeredByUid') && (root.child('users').child(auth.uid).child('role').val() == 'gov_admin' || root.child('system').child('govAdminUid').val() == auth.uid)))) )"
+      }
+    }
+  }
+}

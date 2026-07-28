@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
-import { Bell, History, Mic, ScrollText, Timer } from "lucide-react";
+import { AlertTriangle, Bell, History, Mic, ScrollText, Timer } from "lucide-react";
 import { GlassPanel } from "@/components/GlassPanel";
 import { PanelHeader } from "@/components/PanelHeader";
 import { Tabs } from "@/components/Tabs";
 import type { TabItem } from "@/components/Tabs";
 import { useLiveCase } from "@/hooks/useLiveCase";
-import { useCaseHistory } from "@/features/replay/useCaseHistory";
+import { isLiveMicSession } from "@/context/liveCaseContextInstance";
 import { useCaseDetail } from "@/features/replay/useCaseDetail";
 import { useCaseRegistry } from "@/hooks/useCaseRegistry";
 import { useNotifications } from "@/features/notifications/useNotifications";
@@ -21,14 +21,11 @@ export function BottomPanel() {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
   const { activeCase, timeline: liveTimeline, logs } = useLiveCase();
-  const { cases: mockCases, isLoading: casesLoading } = useCaseHistory();
-  const { cases: registryCases, isLoading: registryLoading } = useCaseRegistry();
+  const { cases: registryCases, isLoading: registryLoading, error: registryError } = useCaseRegistry();
   const { caseDetail, isLoading: detailLoading } = useCaseDetail(selectedCaseId, registryCases);
   const { notifications, unreadCount } = useNotifications();
 
-  // Real cases (this device's own Live Mic / recorded-call / screenshot
-  // sessions) always show first, ahead of the 4 scripted demo scenarios.
-  const cases = useMemo(() => [...registryCases, ...mockCases], [registryCases, mockCases]);
+  const cases = registryCases;
 
   const replayData = useMemo(() => {
     if (selectedCaseId && caseDetail) {
@@ -39,12 +36,34 @@ export function BottomPanel() {
         durationMs: caseDetail.durationMs,
         recordingUrl: caseDetail.recordingUrl,
         evidenceImageUrl: caseDetail.evidenceImageUrl,
+        status: caseDetail.status,
+        resolution: caseDetail.resolution,
+        isRealCase: isLiveMicSession(caseDetail) || caseDetail.source === "manual",
+        caseDetail,
       };
     }
     if (!selectedCaseId && activeCase) {
-      return { caseId: activeCase.id, title: activeCase.title, timeline: liveTimeline, durationMs: activeCase.durationMs };
+      return {
+        caseId: activeCase.id,
+        title: activeCase.title,
+        timeline: liveTimeline,
+        durationMs: activeCase.durationMs,
+        status: activeCase.status,
+        resolution: activeCase.resolution,
+        isRealCase: isLiveMicSession(activeCase),
+        caseDetail: null as null,
+      };
     }
-    return { caseId: null, title: "", timeline: [], durationMs: 0 };
+    return {
+      caseId: null,
+      title: "",
+      timeline: [],
+      durationMs: 0,
+      status: undefined,
+      resolution: undefined,
+      isRealCase: false,
+      caseDetail: null as null,
+    };
   }, [selectedCaseId, caseDetail, activeCase, liveTimeline]);
 
   function handleSelectCase(id: string) {
@@ -73,14 +92,18 @@ export function BottomPanel() {
   );
 
   return (
-    <GlassPanel noPadding className="flex h-full flex-col overflow-hidden">
-      <PanelHeader
-        icon={Timer}
-        title="Investigation Console"
-        subtitle="Replay · History · Notifications · Logs"
-        actions={<Tabs items={tabItems} activeTabId={activeTab} onChange={setActiveTab} className="border-none bg-transparent p-0" />}
-      />
-      <div className="flex-1 overflow-hidden">
+    <GlassPanel noPadding className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="shrink-0">
+        <PanelHeader
+          icon={Timer}
+          title="Investigation Console"
+          subtitle="Replay · History · Notifications · Logs"
+          actions={<Tabs items={tabItems} activeTabId={activeTab} onChange={setActiveTab} className="border-none bg-transparent p-0" />}
+        />
+      </div>
+
+      {/* h-0 + flex-1 is required so this pane gets a real height and can scroll */}
+      <div className="h-0 min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
         {activeTab === "live" && <LiveSessionControls />}
 
         {activeTab === "timeline" &&
@@ -94,31 +117,40 @@ export function BottomPanel() {
               durationMs={replayData.durationMs}
               recordingUrl={replayData.recordingUrl}
               evidenceImageUrl={replayData.evidenceImageUrl}
+              source={replayData.caseDetail?.source}
+              status={replayData.status}
+              resolution={replayData.resolution}
+              isRealCase={replayData.isRealCase}
+              caseDetail={replayData.caseDetail}
+              onCaseDeleted={() => {
+                setSelectedCaseId(null);
+                setActiveTab("history");
+              }}
             />
           ))}
 
         {activeTab === "history" && (
-          <div className="h-full overflow-y-auto">
+          <>
+            {registryError && (
+              <div className="m-3 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-2.5 text-[11px] text-danger">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  <strong>Cannot load cases from Firebase:</strong> {registryError}
+                </span>
+              </div>
+            )}
             <CaseHistoryList
               cases={cases}
-              isLoading={casesLoading || registryLoading}
+              isLoading={registryLoading}
               selectedCaseId={selectedCaseId}
               onSelectCase={handleSelectCase}
             />
-          </div>
+          </>
         )}
 
-        {activeTab === "notifications" && (
-          <div className="h-full overflow-y-auto">
-            <NotificationList notifications={notifications} />
-          </div>
-        )}
+        {activeTab === "notifications" && <NotificationList notifications={notifications} />}
 
-        {activeTab === "logs" && (
-          <div className="h-full overflow-y-auto">
-            <SystemLogsFeed logs={logs} />
-          </div>
-        )}
+        {activeTab === "logs" && <SystemLogsFeed logs={logs} />}
       </div>
     </GlassPanel>
   );

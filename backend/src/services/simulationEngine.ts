@@ -270,6 +270,13 @@ function clearTimers(): void {
 }
 
 export function startSimulation(scenarioId?: string): void {
+  // Restarting mid-run without clearing timeouts left old schedule callbacks
+  // firing into the new scenario — garbled transcript / score jumps.
+  if (state) {
+    clearTimers();
+    state.isRunning = false;
+  }
+
   const scenario = (scenarioId && getScenarioById(scenarioId)) || getDefaultScenario();
   const transcript = scenarioToTranscript(scenario);
   const fullGraph = buildCaseGraph(scenario);

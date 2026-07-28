@@ -12,11 +12,18 @@ interface PanelHeaderProps {
 
 export function PanelHeader({ icon: Icon, title, subtitle, actions, className }: PanelHeaderProps) {
   return (
-    <div className={cn("flex items-center justify-between gap-2 border-b border-border px-3.5 py-2.5", className)}>
-      <div className="flex items-center gap-2 overflow-hidden">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <div className="flex flex-col overflow-hidden leading-tight">
-          <span className="truncate text-xs font-semibold uppercase tracking-wider text-text-primary">{title}</span>
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2 border-b border-border/80 bg-gradient-to-r from-surface-raised/40 to-transparent px-3.5 py-2.5",
+        className,
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10">
+          <Icon className="h-3.5 w-3.5 text-primary" />
+        </span>
+        <div className="flex min-w-0 flex-col overflow-hidden leading-tight">
+          <span className="truncate text-[11px] font-bold uppercase tracking-[0.14em] text-text-primary">{title}</span>
           {subtitle && <span className="truncate text-[10px] text-text-muted">{subtitle}</span>}
         </div>
       </div>

@@ -11,7 +11,7 @@ export function DecisionCard({ decision }: { decision: DecisionRecommendation })
       key={decision.id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mx-3 mb-3 flex flex-col gap-2 rounded-lg border p-3"
+      className="flex flex-col gap-2 rounded-lg border p-3"
       style={{ borderColor: `${color}55`, backgroundColor: `${color}12` }}
     >
       <div className="flex items-center gap-2">

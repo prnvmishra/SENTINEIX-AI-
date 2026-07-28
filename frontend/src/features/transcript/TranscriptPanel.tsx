@@ -27,12 +27,12 @@ export function TranscriptPanel() {
       <div className="border-b border-border px-3.5 py-2">
         <AudioWaveform active={isRunning} />
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {transcript.length === 0 ? (
           <EmptyState
             icon={Radio}
             title="Awaiting active call"
-            description="Start a simulation to stream a live transcript with speaker detection and keyword highlighting."
+            description="Upload a real recording or start Live Mic — transcript shows actual speech with AI speaker labels."
           />
         ) : (
           <div className="flex flex-col divide-y divide-border/60">

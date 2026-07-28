@@ -25,7 +25,7 @@ export function StatusDot({ tone = "neutral", pulse = false, label, className }:
         )}
         <span className={cn("relative inline-flex h-2 w-2 rounded-full", toneClasses[tone])} />
       </span>
-      {label && <span className="text-[11px] text-text-secondary">{label}</span>}
+      {label && <span className="font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-text-secondary">{label}</span>}
     </span>
   );
 }
